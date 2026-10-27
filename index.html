@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI Native SQL Editor</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b1220;color:#dfe8f7;font:14px system-ui,sans-serif}.wrap{max-width:1300px;margin:auto;padding:25px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2e405b;padding-bottom:20px}h1{font-size:24px;margin:0}p{color:#a9b8d2;line-height:1.7}.banner{display:flex;justify-content:space-between;gap:24px;padding:35px 0}.hint{background:#16243b;border:1px solid #344866;border-radius:10px;padding:16px;min-width:260px}.hint div{margin:7px 0;color:#abbcda}.panel{border:1px solid #334762;border-radius:10px;overflow:hidden}.toolbar{background:#18253b;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px}.toolbar span{font-weight:700}button{background:#6256db;color:white;border:0;border-radius:6px;padding:9px 13px;cursor:pointer}button.secondary{background:#324159}button:disabled{opacity:.5;cursor:not-allowed}#editor{height:520px;background:#1e1e1e}.footer{background:#17253a;padding:10px 16px;color:#b6c6dd;font-size:12px}#preview{margin-top:20px;display:none}#diff{height:300px}#preview .bottom{display:flex;justify-content:flex-end;gap:10px;padding:12px}.inline-chat{padding:10px;background:#23314d;border:1px solid #8a7df6;border-radius:8px;margin:6px 16px;max-width:800px;box-shadow:0 12px 25px #0007}.inline-chat strong{color:#d1c6ff}.inline-chat textarea{width:100%;display:block;margin:8px 0;background:#101f36;color:white;border:1px solid #5c6e93;border-radius:5px;padding:9px;resize:none;outline:none}.inline-chat .row{display:flex;align-items:center;justify-content:space-between}.inline-chat small{color:#a6b6d1}#alert{color:#ffbc86;padding:0 15px}kbd{background:#263853;border:1px solid #455b78;border-radius:4px;padding:2px 5px}@media(max-width:700px){.banner{flex-direction:column}.toolbar{flex-wrap:wrap}.wrap{padding:12px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script></head>
+<body><div class="wrap"><header><h1>✦ AI Native SQL Editor</h1><span>Monaco · Inline Chat MVP</span></header>
+<div class="banner"><div><h2>用自然语言修改 SQL</h2><p>选中语句，按 <kbd>Ctrl+I</kbd>（Mac：<kbd>⌘+I</kbd>），直接在代码中输入修改指令。<br>预览差异，再接受或拒绝；支持撤销与编辑冲突保护。</p></div><aside class="hint"><b>试试</b><div>① 选中任意 SQL 或将光标放在某行</div><div>② 按 Ctrl+I 唤起 AI</div><div>③ 输入“增加最近30天过滤条件”</div><div>④ 生成 → 对比 → 接受</div></aside></div>
+<div class="panel"><div class="toolbar"><span>▤ sales_analysis.sql</span><div><button class="secondary" id="reset">重置</button> <button id="open">✦ AI 编辑 Ctrl+I</button></div></div><div id="editor"></div><div class="footer" id="status">就绪 · Demo 模式（无需密钥）</div></div>
+<div class="panel" id="preview"><div class="toolbar"><span>AI 修改预览（左：原 SQL；右：建议 SQL）</span><button class="secondary" id="rejectTop">×</button></div><div id="diff"></div><div id="alert"></div><div class="bottom"><button class="secondary" id="reject">拒绝</button><button id="accept">✓ 接受修改</button></div></div>
+<p>注：本版本为无密钥规则演示，尚未接入真实 AI；不执行 SQL。Monaco 从 jsDelivr CDN 加载，需要联网。</p></div>
+<script>
+const sample=`-- 订单收入分析
+SELECT
+    user_id,
+    SUM(amount) AS total_amount
+FROM orders
+GROUP BY user_id
+ORDER BY total_amount DESC;`;
+require.config({paths:{vs:'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'}});
+require(['vs/editor/editor.main'], function(){
+  const editor=monaco.editor.create(document.getElementById('editor'),{value:sample,language:'sql',theme:'vs-dark',automaticLayout:true,fontSize:14,lineHeight:25,minimap:{enabled:false},scrollBeyondLastLine:false});
+  let zoneId=null,node=null,input=null,snapshot=null,proposal='',diff=null,original=null,modified=null;
+  const status=document.getElementById('status'),panel=document.getElementById('preview'),alert=document.getElementById('alert');
+  function closeZone(){if(zoneId){editor.changeViewZones(a=>a.removeZone(zoneId));zoneId=null;}node=null;input=null;}
+  function closeDiff(){panel.style.display='none';diff?.dispose();original?.dispose();modified?.dispose();diff=original=modified=null;proposal='';}
+  function closeAll(){closeZone();closeDiff();}
+  function openChat(){
+    closeAll();const model=editor.getModel(),selection=editor.getSelection();const selected=!selection.isEmpty();const range=selected?new monaco.Range(selection.startLineNumber,selection.startColumn,selection.endLineNumber,selection.endColumn):model.getFullModelRange();
+    snapshot={version:model.getVersionId(),range,text:model.getValueInRange(range)};
+    const el=document.createElement('div');el.className='inline-chat';
+    el.innerHTML='<div class="row"><strong>✦ AI Inline Chat</strong><button class="secondary close" aria-label="关闭">×</button></div><textarea rows="2" placeholder="输入 SQL 修改要求，如：增加最近30天过滤条件"></textarea><div class="row"><small>Ctrl+Enter 生成 · Esc 关闭</small><button class="generate">生成修改 ↗</button></div>';
+    node=el;input=el.querySelector('textarea');el.querySelector('.close').onclick=()=>{closeAll();editor.focus()};el.querySelector('.generate').onclick=generate;
+    input.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();closeAll();editor.focus()}else if(e.key==='Enter'&&e.ctrlKey){e.preventDefault();generate()}};
+    editor.changeViewZones(a=>zoneId=a.addZone({afterLineNumber:selection.endLineNumber,heightInPx:155,domNode:el,suppressMouseDown:false}));
+    status.textContent=selected?'选区编辑：请输入指令':'全文编辑：请输入指令';input.focus();
+  }
+  function rewrite(sql,prompt){
+    const p=prompt.toLowerCase();let days=/30\s*天|三十天|30\s*days/.test(p)?30:/7\s*天|七天|最近一周/.test(p)?7:null;
+    if(days){const condition="order_date >= CURRENT_DATE - INTERVAL '"+days+"' DAY";if(/\bWHERE\b/i.test(sql))return sql.replace(/\bWHERE\b/i,'WHERE '+condition+' AND');if(/\bGROUP\s+BY\b/i.test(sql))return sql.replace(/\bGROUP\s+BY\b/i,'WHERE '+condition+'\nGROUP BY');return sql.replace(/;?\s*$/, '\nWHERE '+condition+';');}
+    if(/limit|前十|前10|限制/.test(p))return sql.replace(/;?\s*$/, '\nLIMIT 10;');
+    if(/注释|解释/.test(p))return '-- 请检查 SQL 的业务语义与字段口径\n'+sql;
+    return '-- 演示模式（非真实 AI）指令：'+prompt.replace(/[\r\n]/g,' ').slice(0,100)+'\n'+sql;
+  }
+  function generate(){
+    if(!input||!input.value.trim()||!snapshot)return;
+    if(editor.getModel().getVersionId()!==snapshot.version){status.textContent='SQL 已修改，请重新打开 Ctrl+I';return;}
+    proposal=rewrite(snapshot.text,input.value.trim());panel.style.display='block';alert.textContent='';
+    diff?.dispose();original?.dispose();modified?.dispose();
+    original=monaco.editor.createModel(snapshot.text,'sql');modified=monaco.editor.createModel(proposal,'sql');
+    diff=monaco.editor.createDiffEditor(document.getElementById('diff'),{readOnly:true,originalEditable:false,automaticLayout:true,renderSideBySide:true,minimap:{enabled:false},fontSize:13});
+    diff.setModel({original,modified});status.textContent='建议已生成：请检查 Diff';
+  }
+  function accept(){
+    if(!snapshot||!proposal)return;
+    if(editor.getModel().getVersionId()!==snapshot.version){alert.textContent='检测到编辑冲突：原 SQL 已变化。请重新生成，避免覆盖。';return;}
+    editor.pushUndoStop();editor.executeEdits('ai-inline-chat',[{range:snapshot.range,text:proposal,forceMoveMarkers:true}]);editor.pushUndoStop();
+    closeAll();status.textContent='AI 修改已应用，Ctrl+Z 可以撤销';editor.focus();
+  }
+  editor.onDidChangeModelContent(()=>{if(panel.style.display==='block'&&snapshot&&editor.getModel().getVersionId()!==snapshot.version){alert.textContent='检测到编辑冲突：原 SQL 已变化，请重新生成。'}});
+  editor.addAction({id:'ai-inline-chat',label:'AI Inline Chat',keybindings:[monaco.KeyMod.CtrlCmd|monaco.KeyCode.KeyI],run:openChat});
+  document.getElementById('open').onclick=openChat;document.getElementById('reset').onclick=()=>{closeAll();editor.setValue(sample);status.textContent='已重置'};
+  document.getElementById('accept').onclick=accept;document.getElementById('reject').onclick=document.getElementById('rejectTop').onclick=()=>{closeDiff();status.textContent='已拒绝修改，原 SQL 不变'};
+});
+</script></body></html>
