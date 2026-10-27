@@ -14,7 +14,7 @@ jobs:
         run: node --check server.mjs
       - name: Check inline JavaScript syntax
         run: |
-          node -e "const fs=require('fs');const s=fs.readFileSync('index.html','utf8');const matches=[...s.matchAll(/<script>([\\s\\S]*?)<\\/script>/g)];if(!matches.length)throw Error('Missing inline script');fs.writeFileSync('/tmp/inline.js',matches.at(-1)[1])"
+          node -e "const fs=require('fs');const s=fs.readFileSync('index.html','utf8');const a=s.lastIndexOf('<script>');const b=s.indexOf('</script>',a);if(a<0||b<0)throw Error('Missing inline script');fs.writeFileSync('/tmp/inline.js',s.slice(a+8,b))"
           node --check /tmp/inline.js
       - name: Run proxy tests
         run: node --test server.test.mjs
