@@ -1,8 +1,11 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-const PORT=Number(process.env.PORT||3000);
+import { loadEnvFile } from 'node:process';
 const htmlPath=fileURLToPath(new URL('./index.html',import.meta.url));
+export function loadConfig(path=new URL('./.env',import.meta.url)){
+  try{loadEnvFile(path);}catch(error){if(error.code!=='ENOENT')throw error;}
+}
 export function validate(v){
   return v&&typeof v.sql==='string'&&typeof v.instruction==='string'&&typeof v.dialect==='string'&&v.sql.length<=50000&&v.instruction.trim().length>0&&v.instruction.length<=2000&&v.dialect.length<=80;
 }
@@ -51,4 +54,8 @@ return http.createServer(async(req,res)=>{
   }catch(e){if(!res.headersSent)respond(res,502,e.message||'Provider failed');else if(!res.destroyed){send(res,'error',{message:e.message||'Provider failed'});res.end();}}
 });
 }
-if(process.argv[1]&&fileURLToPath(import.meta.url)===process.argv[1])createServer().listen(PORT,()=>console.log('SQL Editor on http://localhost:'+PORT));
+if(process.argv[1]&&fileURLToPath(import.meta.url)===process.argv[1]){
+  loadConfig();
+  const port=Number(process.env.PORT||3000);
+  createServer().listen(port,()=>console.log('SQL Editor on http://localhost:'+port));
+}

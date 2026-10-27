@@ -25,7 +25,25 @@ Visit http://localhost:8080, select SQL, press Ctrl+I, and enter `增加最近30
 
 ## Run with real AI
 
-Node.js 20+ required. Set your provider credentials as environment variables:
+Node.js 20.12+ required. Copy `.env.example` to `.env` in the project root:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell, use `Copy-Item .env.example .env`.
+
+Edit `.env` with your provider settings (use `KEY=value` syntax):
+
+```dotenv
+AI_API_KEY="YOUR_KEY"
+AI_MODEL="gpt-4.1-mini"
+AI_BASE_URL="https://api.openai.com/v1"
+```
+
+Then run `node server.mjs`. The server automatically loads `.env` from the directory containing `server.mjs`. Restart the server after changing the file. Existing environment variables take precedence over `.env`; the file is optional. `.env` is ignored by Git. You may also set `PORT` in `.env` (default: `3000`).
+
+Alternatively, keep using environment variables:
 
 ```bash
 export AI_API_KEY="YOUR_KEY"
@@ -39,6 +57,7 @@ On Windows PowerShell:
 ```powershell
 $env:AI_API_KEY = "YOUR_KEY"
 $env:AI_MODEL = "gpt-4.1-mini"
+$env:AI_BASE_URL = "https://api.openai.com/v1"
 node server.mjs
 ```
 

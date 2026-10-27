@@ -2,12 +2,13 @@
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI Native SQL Editor</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#0b1220;color:#dfe8f7;font:14px system-ui,sans-serif}.wrap{max-width:1300px;margin:auto;padding:25px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2e405b;padding-bottom:20px}h1{font-size:24px;margin:0}p{color:#a9b8d2;line-height:1.7}.banner{display:flex;justify-content:space-between;gap:24px;padding:35px 0}.hint{background:#16243b;border:1px solid #344866;border-radius:10px;padding:16px;min-width:260px}.hint div{margin:7px 0;color:#abbcda}.panel{border:1px solid #334762;border-radius:10px;overflow:hidden}.toolbar{background:#18253b;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px}.toolbar span{font-weight:700}button{background:#6256db;color:white;border:0;border-radius:6px;padding:9px 13px;cursor:pointer}button.secondary{background:#324159}button:disabled{opacity:.5;cursor:not-allowed}#editor{height:520px;background:#1e1e1e}.footer{background:#17253a;padding:10px 16px;color:#b6c6dd;font-size:12px}#preview{height:520px;display:none;flex-direction:column}#diff{flex:1;min-height:0}#preview .bottom{display:flex;justify-content:flex-end;gap:10px;padding:12px}.inline-chat{z-index:1;padding:10px;background:#23314d;border:1px solid #8a7df6;border-radius:8px;margin:6px 16px;max-width:800px;box-shadow:0 12px 25px #0007}.inline-chat strong{color:#d1c6ff}.inline-chat textarea{width:100%;display:block;margin:8px 0;background:#101f36;color:white;border:1px solid #5c6e93;border-radius:5px;padding:9px;resize:none;outline:none}.inline-chat .row{display:flex;align-items:center;justify-content:space-between}.inline-chat small{color:#a6b6d1}#alert{color:#ffbc86;padding:0 15px}kbd{background:#263853;border:1px solid #455b78;border-radius:4px;padding:2px 5px}@media(max-width:700px){.banner{flex-direction:column}.toolbar{flex-wrap:wrap}.wrap{padding:12px}}
+.preview-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.generation-state{display:inline-flex;align-items:center;gap:7px;color:#c3baff;font-size:13px}.generation-state[hidden]{display:none}.loading-spinner{width:14px;height:14px;flex:none;border:2px solid #8177c655;border-top-color:#c3baff;border-radius:50%;animation:loading-spin .8s linear infinite}@keyframes loading-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.loading-spinner{animation:none}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script></head>
 <body><div class="wrap"><header><h1>✦ AI Native SQL Editor</h1><span>Monaco · Inline Chat MVP</span></header>
 <div class="banner"><div><h2>用自然语言修改 SQL</h2><p>选中语句，按 <kbd>Ctrl+I</kbd>（Mac：<kbd>⌘+I</kbd>），直接在代码中输入修改指令。<br>预览差异，再接受或拒绝；支持撤销与编辑冲突保护。</p></div><aside class="hint"><b>试试</b><div>① 选中任意 SQL 或将光标放在某行</div><div>② 按 Ctrl+I 唤起 AI</div><div>③ 输入“增加最近30天过滤条件”</div><div>④ 生成 → 对比 → 接受</div></aside></div>
 <div class="panel"><div class="toolbar"><span>▤ sales_analysis.sql</span><div><select id="mode" style="background:#263853;color:#fff;border:1px solid #455b78;border-radius:5px;padding:8px"><option value="demo">Demo 模式</option><option value="api">AI API 模式</option></select> <button class="secondary" id="reset">重置</button> <button id="open">✦ AI 编辑 Ctrl+I</button></div></div><div id="editor"></div>
-<div id="preview"><div class="toolbar"><span>AI 修改预览（原位差异）</span><button class="secondary" id="rejectTop">×</button></div><div id="diff"></div><div id="alert"></div><div class="bottom"><button class="secondary" id="reject">拒绝</button><button id="accept">✓ 接受修改</button></div></div>
+<div id="preview" aria-busy="false"><div class="toolbar"><div class="preview-heading"><span>AI 修改预览（原位差异）</span><span class="generation-state" id="generation-state" role="status" hidden><span class="loading-spinner" aria-hidden="true"></span><span id="generation-label">正在生成 SQL…</span></span></div><button class="secondary" id="rejectTop">×</button></div><div id="diff"></div><div id="alert"></div><div class="bottom"><button class="secondary" id="reject">拒绝</button><button id="accept">✓ 接受修改</button></div></div>
 <div class="footer" id="status">就绪 · Demo 模式（无需密钥）</div></div>
 <p>Demo 使用规则转换；AI API 模式需通过 Node 服务启动并在服务端配置 API Key。该工具不会执行 SQL。Monaco 从 jsDelivr CDN 加载，需要联网。</p></div>
 <script>
@@ -25,9 +26,17 @@ require(['vs/editor/editor.main'], function(){
   let zoneId=null,node=null,input=null,snapshot=null,proposal='',diff=null,original=null,modified=null,request=null,busy=false;
   const editorHost=document.getElementById('editor');
   const status=document.getElementById('status'),panel=document.getElementById('preview'),alert=document.getElementById('alert');
+  function setGenerating(value){
+    busy=value;panel.setAttribute('aria-busy',String(value));
+    document.getElementById('generation-state').hidden=!value;
+    document.getElementById('generation-label').textContent='正在生成 SQL…';
+    document.getElementById('reject').textContent=value?'取消生成':'拒绝';
+    document.getElementById('accept').textContent=value?'生成中…':'✓ 接受修改';
+    if(value)document.getElementById('accept').disabled=true;
+  }
   function closeZone(){if(zoneId){editor.changeViewZones(a=>a.removeZone(zoneId));zoneId=null;}node=null;input=null;}
   function closeDiff(){panel.style.display='none';editorHost.style.display='block';editor.layout();diff?.dispose();original?.dispose();modified?.dispose();diff=original=modified=null;proposal='';}
-  function closeAll(){request?.abort();request=null;busy=false;closeZone();closeDiff();}
+  function closeAll(){request?.abort();request=null;setGenerating(false);closeZone();closeDiff();}
   function openChat(){
     closeAll();const model=editor.getModel(),selection=editor.getSelection();const selected=!selection.isEmpty();const range=selected?new monaco.Range(selection.startLineNumber,selection.startColumn,selection.endLineNumber,selection.endColumn):model.getFullModelRange();
     snapshot={version:model.getVersionId(),range,text:model.getValueInRange(range)};
@@ -54,11 +63,11 @@ require(['vs/editor/editor.main'], function(){
     if(!response.ok)throw Error((await response.text()).slice(0,250));
     if(!response.body)throw Error('Missing response body');
     const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
-    while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true}).replace(/\\r/g,'');
-      let n;while((n=buffer.indexOf('\\n\\n'))>=0){
+    while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true}).replace(/\r/g,'');
+      let n;while((n=buffer.indexOf('\n\n'))>=0){
         const packet=buffer.slice(0,n);buffer=buffer.slice(n+2);
-        const event=packet.split('\\n').find(x=>x.startsWith('event:'))?.slice(6).trim();
-        const data=packet.split('\\n').find(x=>x.startsWith('data:'))?.slice(5).trim();
+        const event=packet.split('\n').find(x=>x.startsWith('event:'))?.slice(6).trim();
+        const data=packet.split('\n').find(x=>x.startsWith('data:'))?.slice(5).trim();
         if(!data)continue;const payload=JSON.parse(data);
         if(event==='delta')onDelta(payload.text||'');
         if(event==='error')throw Error(payload.message||'AI generation failed');
@@ -68,7 +77,7 @@ require(['vs/editor/editor.main'], function(){
   async function generate(){
     if(!input||!input.value.trim()||!snapshot||busy)return;
     if(editor.getModel().getVersionId()!==snapshot.version){status.textContent='SQL 已修改，请重新打开 Ctrl+I';return;}
-    const instruction=input.value.trim();proposal='';busy=true;
+    const instruction=input.value.trim();proposal='';setGenerating(true);
     const controller=request=new AbortController();
     editorHost.style.display='none';panel.style.display='flex';alert.textContent='';
     diff?.dispose();original?.dispose();modified?.dispose();
@@ -87,12 +96,12 @@ require(['vs/editor/editor.main'], function(){
     try{
       if(document.getElementById('mode').value==='demo'){
         proposal=rewrite(snapshot.text,instruction);previewModel.setValue(prefix+proposal+suffix);
-      }else await streamAI(snapshot.text,instruction,controller.signal,t=>{if(request!==controller)return;proposal+=t;previewModel.setValue(prefix+proposal+suffix)});
+      }else await streamAI(snapshot.text,instruction,controller.signal,t=>{if(request!==controller)return;if(t){document.getElementById('generation-label').textContent='正在接收 SQL…';status.textContent='正在接收 SQL…';}proposal+=t;previewModel.setValue(prefix+proposal+suffix)});
       if(request===controller&&!controller.signal.aborted){status.textContent='建议已生成：请检查 Diff';}
     }catch(e){if(request===controller&&e.name!=='AbortError'){alert.textContent='生成失败：'+e.message;status.textContent='生成失败';}}
-    finally{if(request===controller){busy=false;document.getElementById('accept').disabled=!proposal||!!alert.textContent;request=null;}}
+    finally{if(request===controller){setGenerating(false);document.getElementById('accept').disabled=!proposal||!!alert.textContent;request=null;}}
   }
-  function reject(){request?.abort();request=null;busy=false;closeDiff();status.textContent='已拒绝修改，原 SQL 不变';editor.focus();}
+  function reject(){request?.abort();request=null;setGenerating(false);closeDiff();status.textContent='已拒绝修改，原 SQL 不变';editor.focus();}
   function accept(){
     if(!snapshot||!proposal||busy)return;
     if(editor.getModel().getVersionId()!==snapshot.version){alert.textContent='检测到编辑冲突：原 SQL 已变化。请重新生成，避免覆盖。';return;}
