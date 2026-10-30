@@ -23,6 +23,23 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     await request('增加最近30天过滤条件');
     const keep = page.locator('.review-card .keep');
     await keep.waitFor({state: 'visible'});
+    // Regression: the review must start at the Monaco line-number gutter and
+    // touch the edited SQL hunk, not float near the original selection start.
+    const geometry = await page.evaluate(() => {
+      const review = document.querySelector('.review-card')?.getBoundingClientRect();
+      const gutter = document.querySelector('.monaco-editor .line-numbers')?.getBoundingClientRect();
+      const changed = document.querySelector('.monaco-editor .ai-added-line')?.getBoundingClientRect();
+      if (!review || !gutter || !changed) return null;
+      return {
+        leftOffset: review.left - gutter.left,
+        gapAfterChange: review.top - changed.bottom,
+      };
+    });
+    assert.ok(geometry, 'review, line-number gutter, and changed line must exist');
+    assert.ok(Math.abs(geometry.leftOffset) <= 8,
+      'review must align with the line-number gutter: ' + JSON.stringify(geometry));
+    assert.ok(Math.abs(geometry.gapAfterChange) <= 15,
+      'review must immediately follow edited SQL: ' + JSON.stringify(geometry));
     await keep.click({timeout: 6000});
     assert.match(await page.locator('#status').textContent(), /已保留 AI 修改/);
 
