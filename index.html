@@ -221,8 +221,8 @@
 .review-card .actions,.error-card .actions{display:flex;gap:8px}
 .review-card .keep{background:#27795e}.error-card .retry{background:#6655c9}
 /* Compact single-line confirmation: status on the left, actions on the right. */
-.review-zone{height:52px}
-.review-card{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 12px}
+.review-zone{height:58px;padding:6px 0}
+.review-card{height:46px;min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 12px}
 .review-card .review-message{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}
 .review-card .actions{flex:none;display:flex;align-items:center;gap:8px}
 .review-card .actions button{flex:none;padding:6px 12px;white-space:nowrap;font-size:12px}
@@ -357,9 +357,9 @@ require(['vs/editor/editor.main'], () => {
       interactiveNode.style.pointerEvents = 'auto';
       interactiveNode.style.zIndex = '30';
       interactiveNode.style.boxSizing = 'border-box';
-      // Chat aligns with SQL text; feedback aligns with the line-number gutter.
+      // Inline chat and confirmation both align with the SQL content column.
       const layout = editor.getLayoutInfo();
-      const left = key === 'feedback' ? layout.lineNumbersLeft : layout.contentLeft;
+      const left = layout.contentLeft;
       interactiveNode.style.left = left + 'px';
       interactiveNode.style.width = Math.max(160, layout.width - left - 12) + 'px';
       editorHost.appendChild(interactiveNode);
@@ -391,7 +391,7 @@ require(['vs/editor/editor.main'], () => {
     for (const key of ['chat', 'feedback']) {
       const node = zones[key]?.interactiveNode;
       if (node) {
-        const left = key === 'feedback' ? layout.lineNumbersLeft : layout.contentLeft;
+        const left = layout.contentLeft;
         node.style.left = left + 'px';
         node.style.width = Math.max(160, layout.width - left - 12) + 'px';
       }
@@ -512,7 +512,7 @@ require(['vs/editor/editor.main'], () => {
       card.append(row,desc);
     }
     el.append(card);
-    insertZone('feedback',afterLine,el,kind==='success'?52:115);
+    insertZone('feedback',afterLine,el,kind==='success'?58:115);
   }
   function markChanges(before,after) {
     const a=before.split('\n'),b=after.split('\n');
