@@ -212,8 +212,8 @@
 .inline-chat button.generate{background:#7964e9}
 .inline-chat button.cancel{background:#43526c}
 .inline-chat [hidden]{display:none!important}
-.review-zone,.error-zone{box-sizing:border-box;width:100%;padding:6px 18px 8px;overflow:hidden}
-.review-card,.error-card{max-width:900px;background:#1b2a3d;border:1px solid #4f6079;border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px #0003}
+.review-zone,.error-zone{box-sizing:border-box;width:100%;padding:0;overflow:hidden}
+.review-card,.error-card{width:100%;max-width:none;margin:0;background:#1b2a3d;border:1px solid #4f6079;border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px #0003}
 .review-card{border-left:3px solid #40b985}
 .error-card{border-left:3px solid #e27879}
 .review-card .row,.error-card .row{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
@@ -351,10 +351,11 @@ require(['vs/editor/editor.main'], () => {
       interactiveNode.style.pointerEvents = 'auto';
       interactiveNode.style.zIndex = '30';
       interactiveNode.style.boxSizing = 'border-box';
-      // Align the dialog with the text column, leaving the line-number gutter.
+      // Chat aligns with SQL text; feedback aligns with the line-number gutter.
       const layout = editor.getLayoutInfo();
-      interactiveNode.style.left = layout.contentLeft + 'px';
-      interactiveNode.style.width = Math.max(160, layout.width - layout.contentLeft - 12) + 'px';
+      const left = key === 'feedback' ? layout.lineNumbersLeft : layout.contentLeft;
+      interactiveNode.style.left = left + 'px';
+      interactiveNode.style.width = Math.max(160, layout.width - left - 12) + 'px';
       editorHost.appendChild(interactiveNode);
       // Keep Monaco's keyboard/mouse handlers from hijacking form controls.
       for (const eventName of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
@@ -384,8 +385,9 @@ require(['vs/editor/editor.main'], () => {
     for (const key of ['chat', 'feedback']) {
       const node = zones[key]?.interactiveNode;
       if (node) {
-        node.style.left = layout.contentLeft + 'px';
-        node.style.width = Math.max(160, layout.width - layout.contentLeft - 12) + 'px';
+        const left = key === 'feedback' ? layout.lineNumbersLeft : layout.contentLeft;
+        node.style.left = left + 'px';
+        node.style.width = Math.max(160, layout.width - left - 12) + 'px';
       }
     }
   });
@@ -529,7 +531,7 @@ require(['vs/editor/editor.main'], () => {
       options:{isWholeLine:true,className:'ai-added-line',linesDecorationsClassName:'ai-added-gutter',
         overviewRuler:{color:'#3dbf85',position:monaco.editor.OverviewRulerLane.Right}}
     }]);
-    return {inserted,removed};
+    return {inserted,removed, firstChangedLine:from, lastChangedLine:to};
   }
   async function generate(instruction,button,element){
     if(phase!=='editing'||!instruction)return;
@@ -556,8 +558,11 @@ require(['vs/editor/editor.main'], () => {
       snapshot.after=model.getValue();
       const stats=markChanges(snapshot.before,snapshot.after);
       phase='review';
+      // Anchor to the actual changed block, not to the original selection start.
+      // Whole-document edits previously placed the review near line 2 even when
+      // a WHERE/JOIN changed much later in the document.
       feedback('success',`修改已应用到原编辑器（新增约 ${stats.inserted} 行，移除约 ${stats.removed} 行）。选择“撤销”恢复原内容，或“保留”确认修改。`,
-        Math.min(model.getLineCount(),snapshot.range.startLineNumber+Math.max(0,stats.inserted)));
+        stats.lastChangedLine);
       status.textContent='AI 修改待确认 · 请查看原编辑器的绿色差异标记';
     }catch(error){
       if(token===current&&error.name!=='AbortError')showError(error.message||'未知错误');
