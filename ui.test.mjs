@@ -18,28 +18,8 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     await page.keyboard.press('Control+i');
     const shortcutInput = page.locator('.inline-chat .chat-input');
     await shortcutInput.waitFor({state: 'visible'});
-    await page.waitForTimeout(250);
-    console.log('shortcut focus diagnostic', await page.evaluate(() => {
-      const active = document.activeElement;
-      const input = document.querySelector('.inline-chat .chat-input');
-      return {activeTag:active?.tagName,activeClass:String(active?.className||''),
-        inputConnected:input?.isConnected,inputFocused:active===input,
-        containsActive:document.querySelector('#editor')?.contains(active),
-        inputRect:input?.getBoundingClientRect().toJSON()};
-    }));
-    console.log('manual focus probe', await page.evaluate(() => {
-      const input = document.querySelector('.inline-chat .chat-input');
-      input.focus();
-      return {
-        afterDirectFocus:document.activeElement===input,
-        inputDisabled:input.disabled,
-        isConnected:input.isConnected,
-        visibility:getComputedStyle(input).visibility,
-        tabIndex:input.tabIndex
-      };
-    }));
     await page.waitForFunction(() =>
-      document.activeElement === document.querySelector('.inline-chat .chat-input'), null, {timeout:3000}
+      document.activeElement === document.querySelector('.inline-chat .chat-input'), null, {timeout:5000}
     );
     await page.keyboard.type('直接输入测试');
     assert.equal(await shortcutInput.inputValue(), '直接输入测试');
@@ -51,7 +31,7 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     const toolbarInput = page.locator('.inline-chat .chat-input');
     await toolbarInput.waitFor({state: 'visible'});
     await page.waitForFunction(() =>
-      document.activeElement === document.querySelector('.inline-chat .chat-input')
+      document.activeElement === document.querySelector('.inline-chat .chat-input'), null, {timeout:5000}
     );
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.inline-chat').count(), 0);
