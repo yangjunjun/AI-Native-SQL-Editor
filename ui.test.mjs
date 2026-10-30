@@ -23,6 +23,30 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     await request('增加最近30天过滤条件');
     const keep = page.locator('.review-card .keep');
     await keep.waitFor({state: 'visible'});
+    const compactLayout = await page.evaluate(() => {
+      const card = document.querySelector('.review-card');
+      const message = card?.querySelector('.review-message');
+      const undoButton = card?.querySelector('.secondary');
+      const keepButton = card?.querySelector('.keep');
+      if (!card || !message || !undoButton || !keepButton) return null;
+      const bar = card.getBoundingClientRect();
+      const left = message.getBoundingClientRect();
+      const undo = undoButton.getBoundingClientRect();
+      const keep = keepButton.getBoundingClientRect();
+      return {
+        label: message.textContent,
+        cardHeight: bar.height,
+        sameRow: Math.abs((left.top + left.bottom)/2 - (undo.top + undo.bottom)/2) < 6 &&
+          Math.abs((left.top + left.bottom)/2 - (keep.top + keep.bottom)/2) < 6,
+        order: left.right < undo.left && undo.right < keep.left,
+        hasDescription: !!card.querySelector('p')
+      };
+    });
+    assert.ok(compactLayout, 'confirmation components must render');
+    assert.match(compactLayout.label, /变更已完成，请确认是否采纳/);
+    assert.ok(compactLayout.cardHeight <= 52, 'confirmation must be compact: ' + JSON.stringify(compactLayout));
+    assert.ok(compactLayout.sameRow && compactLayout.order, 'message and buttons must share one row in order');
+    assert.equal(compactLayout.hasDescription, false, 'success bar should not include a second line');
     // Regression: the review must start at the Monaco line-number gutter and
     // touch the edited SQL hunk, not float near the original selection start.
     const geometry = await page.evaluate(() => {
