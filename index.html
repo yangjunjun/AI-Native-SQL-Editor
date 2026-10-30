@@ -241,6 +241,78 @@
 .ai-removed-lines{box-sizing:border-box;overflow:hidden;height:100%;border-left:3px solid #e27278;background:#452a31;color:#f1c5c6;font:13px/23px ui-monospace,SFMono-Regular,Consolas,monospace}
 .ai-removed-label{height:26px;padding:2px 12px;background:#5a303b;font:12px/22px system-ui;color:#ffd1d1}
 .ai-removed-code{height:23px;white-space:pre;overflow:hidden;text-overflow:ellipsis;padding:0 12px}
+
+/* App + Monaco share the same theme selection. Keep dynamic inline widgets in sync. */
+body {
+  --page-bg:#0b1220; --text:#dfe8f7; --muted:#a9b8d2;
+  --border:#334762; --toolbar-bg:#18253b; --hint-bg:#16243b;
+  --footer-bg:#17253a; --footer-text:#b6c6dd;
+  --select-bg:#263853; --select-border:#455b78;
+  --secondary-bg:#324159; --secondary-text:#fff; --primary-bg:#6256db;
+  --editor-shell:#1e1e1e;
+  --chat-shell:#252a31; --chat-border:#434b58; --chat-field:#191d23;
+  --chat-field-border:#454e5d; --chat-focus:#7b79a0;
+  --chat-text:#e8ebf3; --chat-placeholder:#858c9c; --thinking-text:#87909f;
+  --review-bg:#1b2a3d; --review-border:#4f6079; --review-text:#dfe8f7;
+  --review-desc:#bbc9df; --error-bg:#1b2a3d;
+  --removed-bg:#452a31; --removed-text:#f1c5c6;
+  --removed-label-bg:#5a303b; --removed-label-text:#ffd1d1;
+  --kbd-bg:#263853; --kbd-border:#455b78;
+  background:var(--page-bg); color:var(--text);
+}
+body[data-theme="light"] {
+  color-scheme:light;
+  --page-bg:#f6f8fc; --text:#243044; --muted:#59677d;
+  --border:#cbd5e1; --toolbar-bg:#edf2fa; --hint-bg:#fff;
+  --footer-bg:#edf2f8; --footer-text:#506078;
+  --select-bg:#fff; --select-border:#bbc8d9;
+  --secondary-bg:#e2e8f0; --secondary-text:#253247; --primary-bg:#6252c5;
+  --editor-shell:#fff;
+  --chat-shell:#f1f4f8; --chat-border:#c2cbd8; --chat-field:#fff;
+  --chat-field-border:#b9c5d6; --chat-focus:#7266d1;
+  --chat-text:#253247; --chat-placeholder:#66758c; --thinking-text:#637187;
+  --review-bg:#f0fdf7; --review-border:#a9d6c2; --review-text:#19583e;
+  --review-desc:#476b5a; --error-bg:#fff3f3;
+  --removed-bg:#fff1f2; --removed-text:#9f213d;
+  --removed-label-bg:#ffe3e8; --removed-label-text:#8d2440;
+  --kbd-bg:#ecf1f8; --kbd-border:#bdc8d8;
+}
+body:not([data-theme="light"]){color-scheme:dark}
+header{border-bottom-color:var(--border)}
+p{color:var(--muted)}
+.hint{background:var(--hint-bg);border-color:var(--border)}
+.hint div{color:var(--muted)}
+.panel{border-color:var(--border)}
+.toolbar{background:var(--toolbar-bg)}
+.toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.toolbar #mode,.toolbar #theme{
+  background:var(--select-bg);color:var(--text);
+  border:1px solid var(--select-border);border-radius:6px;
+  padding:8px;cursor:pointer;font:inherit
+}
+.theme-picker{display:inline-flex;align-items:center;gap:6px;color:var(--muted);white-space:nowrap;font-size:13px}
+button{background:var(--primary-bg)}
+button.secondary{background:var(--secondary-bg);color:var(--secondary-text)}
+#editor{background:var(--editor-shell)}
+.footer{background:var(--footer-bg);color:var(--footer-text)}
+kbd{background:var(--kbd-bg);border-color:var(--kbd-border)}
+.inline-chat{background:var(--chat-shell)!important;border-color:var(--chat-border)!important}
+.inline-chat .chat-input-row{background:var(--chat-field);border-color:var(--chat-field-border)}
+.inline-chat .chat-input-row:focus-within{border-color:var(--chat-focus)}
+.inline-chat .chat-input{color:var(--chat-text)}
+.inline-chat .chat-input::placeholder{color:var(--chat-placeholder)}
+.inline-chat.is-generating .chat-input{color:var(--thinking-text)}
+.inline-chat.is-generating .chat-input-row{border-color:var(--chat-field-border)}
+.review-card,.error-card{background:var(--review-bg);border-color:var(--review-border);color:var(--review-text)}
+.error-card{background:var(--error-bg)}
+.review-card p,.error-card p{color:var(--review-desc)}
+.ai-removed-lines{background:var(--removed-bg);color:var(--removed-text)}
+.ai-removed-label{background:var(--removed-label-bg);color:var(--removed-label-text)}
+body[data-theme="light"] .monaco-editor .ai-added-line{background:rgba(22,145,89,.15)}
+body[data-theme="light"] .monaco-editor .ai-deleted-line{background:rgba(194,55,71,.12)}
+body[data-theme="light"] .inline-chat .generate.stop-mode{background:#26ef79;color:#111b14}
+body[data-theme="light"] #preview{background:#fff;color:var(--text)}
+
     </style>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
   </head>
@@ -270,17 +342,14 @@
       <div class="panel">
         <div class="toolbar">
           <span>▤ sales_analysis.sql</span>
-          <div>
-            <select
-              id="mode"
-              style="
-                background: #263853;
-                color: #fff;
-                border: 1px solid #455b78;
-                border-radius: 5px;
-                padding: 8px;
-              "
-            >
+          <div class="toolbar-actions">
+            <label class="theme-picker" for="theme">主题
+              <select id="theme" aria-label="编辑器主题">
+                <option value="dark">深色</option>
+                <option value="light">浅色</option>
+              </select>
+            </label>
+            <select id="mode" aria-label="AI 模式">
               <option value="demo">Demo 模式</option>
               <option value="api">AI API 模式</option>
             </select>
@@ -323,12 +392,33 @@ SELECT
 FROM orders
 GROUP BY user_id
 ORDER BY total_amount DESC;`;
+const THEME_STORAGE_KEY = 'ai-native-sql-editor-theme';
+let initialTheme = 'dark';
+try {
+  if (localStorage.getItem(THEME_STORAGE_KEY) === 'light') initialTheme = 'light';
+} catch {
+  // Browser privacy settings or file:// preview may disable localStorage.
+}
+document.body.dataset.theme = initialTheme;
+const themeSelect = document.getElementById('theme');
+themeSelect.value = initialTheme;
+
 require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
 require(['vs/editor/editor.main'], () => {
   const editor = monaco.editor.create(document.getElementById('editor'), {
-    value: sample, language: 'sql', theme: 'vs-dark', automaticLayout: true,
+    value: sample, language: 'sql', theme: initialTheme === 'light' ? 'vs' : 'vs-dark', automaticLayout: true,
     fontSize: 14, lineHeight: 25, minimap: { enabled: false },
     scrollBeyondLastLine: false, glyphMargin: true,
+  });
+  themeSelect.addEventListener('change', () => {
+    const nextTheme = themeSelect.value === 'light' ? 'light' : 'dark';
+    document.body.dataset.theme = nextTheme;
+    monaco.editor.setTheme(nextTheme === 'light' ? 'vs' : 'vs-dark');
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // Theme remains functional for this session even without storage.
+    }
   });
   const model = editor.getModel();
   const status = document.getElementById('status');
