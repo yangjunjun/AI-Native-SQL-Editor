@@ -467,7 +467,20 @@ require(['vs/editor/editor.main'], () => {
     // Native Monaco ViewZone reserves vertical space and pushes the SQL lines below.
     insertZone('chat',snapshot.afterLine,el,68);
     status.textContent=selection.isEmpty()?'Inline Edit · 全文模式':'Inline Edit · 选区模式';
-    requestAnimationFrame(()=>{if(chat===el)input.focus();});
+    // Monaco's command dispatcher or view-zone reveal can restore editor focus
+    // after the shortcut executes. Focus immediately and again once the layout
+    // frame is committed, while avoiding stealing focus from other controls.
+    const focusPrompt = () => {
+      if (chat !== el || phase !== 'editing' || !input.isConnected) return;
+      const active = document.activeElement;
+      if (active !== input && active !== document.body && !editorHost.contains(active)) return;
+      input.focus({ preventScroll: true });
+    };
+    focusPrompt();
+    requestAnimationFrame(() => {
+      focusPrompt();
+      requestAnimationFrame(focusPrompt);
+    });
   }
   function rewriteDemoSql(sql,instruction) {
     if(/失败|error|fail/i.test(instruction))throw Error('模拟生成失败：请检查网络或模型配置。');
