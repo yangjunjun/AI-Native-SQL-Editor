@@ -27,6 +27,17 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
         containsActive:document.querySelector('#editor')?.contains(active),
         inputRect:input?.getBoundingClientRect().toJSON()};
     }));
+    console.log('manual focus probe', await page.evaluate(() => {
+      const input = document.querySelector('.inline-chat .chat-input');
+      input.focus();
+      return {
+        afterDirectFocus:document.activeElement===input,
+        inputDisabled:input.disabled,
+        isConnected:input.isConnected,
+        visibility:getComputedStyle(input).visibility,
+        tabIndex:input.tabIndex
+      };
+    }));
     await page.waitForFunction(() =>
       document.activeElement === document.querySelector('.inline-chat .chat-input'), null, {timeout:3000}
     );
