@@ -470,13 +470,13 @@ require(['vs/editor/editor.main'], () => {
     // Monaco's command dispatcher or view-zone reveal can restore editor focus
     // after the shortcut executes. Focus immediately and again once the layout
     // frame is committed, while avoiding stealing focus from other controls.
-    const focusPrompt = () => {
+    const focusPrompt = (force = false) => {
       if (chat !== el || phase !== 'editing' || !input.isConnected) return;
       const active = document.activeElement;
-      if (active !== input && active !== document.body && !editorHost.contains(active)) return;
+      if (!force && active !== input && active !== document.body && !editorHost.contains(active)) return;
       input.focus({ preventScroll: true });
     };
-    focusPrompt();
+    focusPrompt(true);
     requestAnimationFrame(() => {
       focusPrompt();
       requestAnimationFrame(focusPrompt);
