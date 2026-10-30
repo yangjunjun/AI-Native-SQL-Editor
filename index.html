@@ -220,6 +220,12 @@
 .review-card p,.error-card p{margin:7px 0 9px;color:#bbc9df;font-size:13px}
 .review-card .actions,.error-card .actions{display:flex;gap:8px}
 .review-card .keep{background:#27795e}.error-card .retry{background:#6655c9}
+/* Compact single-line confirmation: status on the left, actions on the right. */
+.review-zone{height:52px}
+.review-card{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 12px}
+.review-card .review-message{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}
+.review-card .actions{flex:none;display:flex;align-items:center;gap:8px}
+.review-card .actions button{flex:none;padding:6px 12px;white-space:nowrap;font-size:12px}
 .monaco-editor .ai-added-line{background:rgba(52,177,110,.16)}
 .monaco-editor .ai-added-gutter{border-left:3px solid #3dbf85}
 .monaco-editor .ai-deleted-line{background:rgba(231,102,102,.12)}
@@ -486,7 +492,7 @@ require(['vs/editor/editor.main'], () => {
     const el=document.createElement('div');
     el.className=kind==='success'?'review-zone':'error-zone';
     const card=document.createElement('div');card.className=kind==='success'?'review-card':'error-card';
-    const heading=document.createElement('strong');heading.textContent=kind==='success'?'✓ 已生成 SQL 修改':'⚠ AI 生成失败';
+    const heading=document.createElement('strong');heading.textContent=kind==='success'?'✦ 变更已完成，请确认是否采纳。':'⚠ AI 生成失败';
     const desc=document.createElement('p');desc.textContent=message;
     const row=document.createElement('div');row.className='row';
     const actions=document.createElement('div');actions.className='actions';
@@ -498,8 +504,15 @@ require(['vs/editor/editor.main'], () => {
       action('关闭','secondary',()=>{cleanup();editor.focus();});
       action('重试','retry',()=>{const instruction=snapshot?.instruction||'';cleanup();openInline();if(chat){chat.querySelector('textarea').value=instruction;chat.querySelector('textarea').focus();}});
     }
-    row.append(heading,actions);card.append(row,desc);el.append(card);
-    insertZone('feedback',afterLine,el,115);
+    if(kind==='success'){
+      heading.className='review-message';
+      card.append(heading,actions);
+    }else{
+      row.append(heading,actions);
+      card.append(row,desc);
+    }
+    el.append(card);
+    insertZone('feedback',afterLine,el,kind==='success'?52:115);
   }
   function markChanges(before,after) {
     const a=before.split('\n'),b=after.split('\n');
