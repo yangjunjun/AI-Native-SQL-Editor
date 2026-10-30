@@ -198,6 +198,30 @@
           animation: none;
         }
       }
+
+/* Inline edit uses a view zone, never an overlay over SQL rows. */
+.inline-chat{margin:0!important;padding:12px 18px!important;max-width:none!important;width:100%;border:1px solid #51627b!important;border-left:3px solid #a392ff!important;border-radius:7px!important;background:#1c273b!important;box-shadow:none!important;overflow:hidden}
+.inline-chat .row{display:flex;align-items:center;gap:12px;justify-content:space-between}
+.inline-chat .chat-title{display:flex;align-items:center;gap:8px;font-weight:600;color:#c9befc}
+.inline-chat textarea{height:60px;min-height:50px;margin:10px 0!important;font:inherit;line-height:1.5}
+.inline-chat .hint{border:0;background:transparent;padding:0;min-width:0;font-size:12px;color:#96a9c7}
+.inline-chat .close{padding:4px 9px}
+.inline-chat .action{display:flex;gap:8px;align-items:center}
+.inline-chat button.generate{background:#7964e9}
+.inline-chat button.cancel{background:#43526c}
+.inline-chat [hidden]{display:none!important}
+.review-zone,.error-zone{box-sizing:border-box;width:100%;padding:6px 18px 8px;overflow:hidden}
+.review-card,.error-card{max-width:900px;background:#1b2a3d;border:1px solid #4f6079;border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px #0003}
+.review-card{border-left:3px solid #40b985}
+.error-card{border-left:3px solid #e27879}
+.review-card .row,.error-card .row{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.review-card p,.error-card p{margin:7px 0 9px;color:#bbc9df;font-size:13px}
+.review-card .actions,.error-card .actions{display:flex;gap:8px}
+.review-card .keep{background:#27795e}.error-card .retry{background:#6655c9}
+.monaco-editor .ai-added-line{background:rgba(52,177,110,.16)}
+.monaco-editor .ai-added-gutter{border-left:3px solid #3dbf85}
+.monaco-editor .ai-deleted-line{background:rgba(231,102,102,.12)}
+.monaco-editor .ai-deleted-gutter{border-left:3px solid #e57575}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
   </head>
@@ -272,363 +296,236 @@
       </p>
     </div>
     <script>
-      const sample = `-- 订单收入分析
+
+const sample = \`-- 订单收入分析
 SELECT
     user_id,
     SUM(amount) AS total_amount
 FROM orders
 GROUP BY user_id
-ORDER BY total_amount DESC;`;
-      require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
-      require(['vs/editor/editor.main'], function () {
-        const editorOptions = {
-          theme: 'vs-dark',
-          automaticLayout: true,
-          fontSize: 14,
-          lineHeight: 25,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-        };
-        const editor = monaco.editor.create(document.getElementById('editor'), {
-          ...editorOptions,
-          value: sample,
-          language: 'sql',
-        });
-        // Chat, preview models, and the current generation request have separate lifecycles.
-        let zoneId = null;
-        let chatNode = null;
-        let chatInput = null;
-        let editSnapshot = null;
-        let proposedSql = '';
-        let diffEditor = null;
-        let originalModel = null;
-        let modifiedModel = null;
-        let activeRequest = null;
-        let isGenerating = false;
-        const editorHost = document.getElementById('editor');
-        const statusLabel = document.getElementById('status');
-        const previewPanel = document.getElementById('preview');
-        const errorMessage = document.getElementById('alert');
-        const controls = {
-          mode: document.getElementById('mode'),
-          open: document.getElementById('open'),
-          reset: document.getElementById('reset'),
-          accept: document.getElementById('accept'),
-          reject: document.getElementById('reject'),
-          closePreview: document.getElementById('rejectTop'),
-          generationState: document.getElementById('generation-state'),
-          generationLabel: document.getElementById('generation-label'),
-          diffHost: document.getElementById('diff'),
-        };
+ORDER BY total_amount DESC;\`;
+require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+require(['vs/editor/editor.main'], () => {
+  const editor = monaco.editor.create(document.getElementById('editor'), {
+    value: sample, language: 'sql', theme: 'vs-dark', automaticLayout: true,
+    fontSize: 14, lineHeight: 25, minimap: { enabled: false },
+    scrollBeyondLastLine: false, glyphMargin: true,
+  });
+  const model = editor.getModel();
+  const status = document.getElementById('status');
+  const mode = document.getElementById('mode');
+  const zones = { chat: null, feedback: null };
+  let phase = 'idle', snapshot = null, chat = null, abortController = null;
+  let decorations = editor.createDecorationsCollection([]);
+  let token = 0;
 
-        function setGenerating(value) {
-          isGenerating = value;
-          previewPanel.setAttribute('aria-busy', String(value));
-          controls.generationState.hidden = !value;
-          controls.generationLabel.textContent = '正在生成 SQL…';
-          controls.reject.textContent = value ? '取消生成' : '拒绝';
-          controls.accept.textContent = value ? '生成中…' : '✓ 接受修改';
-          if (value) controls.accept.disabled = true;
-        }
-
-        function cancelGeneration() {
-          activeRequest?.abort();
-          activeRequest = null;
-          setGenerating(false);
-        }
-
-        function disposePreview() {
-          diffEditor?.dispose();
-          originalModel?.dispose();
-          modifiedModel?.dispose();
-          diffEditor = null;
-          originalModel = null;
-          modifiedModel = null;
-        }
-
-        function closeChat() {
-          if (zoneId) {
-            editor.changeViewZones((zonesAccessor) => zonesAccessor.removeZone(zoneId));
-            zoneId = null;
-          }
-          chatNode = null;
-          chatInput = null;
-        }
-
-        function closePreview() {
-          previewPanel.style.display = 'none';
-          editorHost.style.display = 'block';
-          editor.layout();
-          disposePreview();
-          proposedSql = '';
-        }
-
-        function closeAll() {
-          cancelGeneration();
-          closeChat();
-          closePreview();
-        }
-
-        function openChat() {
-          closeAll();
-          const model = editor.getModel();
-          const selection = editor.getSelection();
-          const selected = !selection.isEmpty();
-          const range = selected
-            ? new monaco.Range(
-                selection.startLineNumber,
-                selection.startColumn,
-                selection.endLineNumber,
-                selection.endColumn,
-              )
-            : model.getFullModelRange();
-          editSnapshot = {
-            version: model.getVersionId(),
-            range,
-            text: model.getValueInRange(range),
-          };
-          const chatElement = document.createElement('div');
-          chatElement.className = 'inline-chat';
-          chatElement.innerHTML = `
-            <div class="row">
-              <strong>✦ AI Inline Chat</strong>
-              <button class="secondary close" aria-label="关闭">×</button>
-            </div>
-            <textarea rows="2" placeholder="输入 SQL 修改要求，如：增加最近30天过滤条件"></textarea>
-            <div class="row">
-              <small>Ctrl+Enter 生成 · Esc 关闭</small>
-              <button class="generate">生成修改 ↗</button>
-            </div>
-          `;
-          // Keep native input events inside the chat instead of Monaco's editor handlers.
-          for (const type of ['pointerdown', 'mousedown', 'keydown', 'keyup'])
-            chatElement.addEventListener(type, (event) => event.stopPropagation());
-          chatNode = chatElement;
-          chatInput = chatElement.querySelector('textarea');
-          chatElement.querySelector('.close').onclick = () => {
-            closeAll();
-            editor.focus();
-          };
-          chatElement.querySelector('.generate').onclick = generate;
-          chatInput.onkeydown = (event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault();
-              closeAll();
-              editor.focus();
-            } else if (event.key === 'Enter' && event.ctrlKey) {
-              event.preventDefault();
-              generate();
-            }
-          };
-          editor.changeViewZones((zonesAccessor) => {
-            zoneId = zonesAccessor.addZone({
-              afterLineNumber: selection.endLineNumber,
-              heightInPx: 155,
-              domNode: chatElement,
-              suppressMouseDown: false,
-            });
-          });
-          statusLabel.textContent = selected ? '选区编辑：请输入指令' : '全文编辑：请输入指令';
-          // View zones are rendered asynchronously; focus only after this zone is visible.
-          requestAnimationFrame(() => {
-            if (chatNode === chatElement) chatElement.querySelector('textarea').focus();
-          });
-        }
-
-        function rewriteDemoSql(sql, prompt) {
-          const normalizedPrompt = prompt.toLowerCase();
-          const days = /30\s*天|三十天|30\s*days/.test(normalizedPrompt)
-            ? 30
-            : /7\s*天|七天|最近一周/.test(normalizedPrompt)
-              ? 7
-              : null;
-          if (days) {
-            const condition = "order_date >= CURRENT_DATE - INTERVAL '" + days + "' DAY";
-            if (/\bWHERE\b/i.test(sql))
-              return sql.replace(/\bWHERE\b/i, 'WHERE ' + condition + ' AND');
-            if (/\bGROUP\s+BY\b/i.test(sql))
-              return sql.replace(/\bGROUP\s+BY\b/i, 'WHERE ' + condition + '\nGROUP BY');
-            return sql.replace(/;?\s*$/, '\nWHERE ' + condition + ';');
-          }
-          if (/limit|前十|前10|限制/.test(normalizedPrompt))
-            return sql.replace(/;?\s*$/, '\nLIMIT 10;');
-          if (/注释|解释/.test(normalizedPrompt))
-            return '-- 请检查 SQL 的业务语义与字段口径\n' + sql;
-          return (
-            '-- 演示模式（非真实 AI）指令：' +
-            prompt.replace(/[\r\n]/g, ' ').slice(0, 100) +
-            '\n' +
-            sql
-          );
-        }
-
-        function openPreview() {
-          editorHost.style.display = 'none';
-          previewPanel.style.display = 'flex';
-          errorMessage.textContent = '';
-          disposePreview();
-          // Preview the entire document, including SQL outside the selected range.
-          const model = editor.getModel();
-          const documentText = model.getValue();
-          const prefix = documentText.slice(
-            0,
-            model.getOffsetAt(editSnapshot.range.getStartPosition()),
-          );
-          const suffix = documentText.slice(model.getOffsetAt(editSnapshot.range.getEndPosition()));
-          originalModel = monaco.editor.createModel(documentText, 'sql');
-          modifiedModel = monaco.editor.createModel(documentText, 'sql');
-          diffEditor = monaco.editor.createDiffEditor(controls.diffHost, {
-            ...editorOptions,
-            readOnly: true,
-            originalEditable: false,
-            renderSideBySide: false,
-          });
-          diffEditor.setModel({ original: originalModel, modified: modifiedModel });
-          diffEditor.revealLineInCenter(editSnapshot.range.startLineNumber);
-          diffEditor.getModifiedEditor().addAction({
-            id: 'close-ai-preview',
-            label: '关闭 AI 修改预览',
-            keybindings: [monaco.KeyCode.Escape],
-            run: rejectChanges,
-          });
-          diffEditor.getModifiedEditor().focus();
-          return { prefix, suffix, previewModel: modifiedModel };
-        }
-
-        async function streamAI(sql, instruction, signal, onDelta) {
-          const response = await fetch('/api/rewrite', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sql, instruction, dialect: 'MySQL' }),
-            signal,
-          });
-          if (!response.ok) throw Error((await response.text()).slice(0, 250));
-          if (!response.body) throw Error('Missing response body');
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true }).replace(/\r/g, '');
-            let packetEnd;
-            while ((packetEnd = buffer.indexOf('\n\n')) >= 0) {
-              const packet = buffer.slice(0, packetEnd);
-              buffer = buffer.slice(packetEnd + 2);
-              const event = packet
-                .split('\n')
-                .find((line) => line.startsWith('event:'))
-                ?.slice(6)
-                .trim();
-              const data = packet
-                .split('\n')
-                .find((line) => line.startsWith('data:'))
-                ?.slice(5)
-                .trim();
-              if (!data) continue;
-              const payload = JSON.parse(data);
-              if (event === 'delta') onDelta(payload.text || '');
-              if (event === 'error') throw Error(payload.message || 'AI generation failed');
-            }
-          }
-        }
-
-        async function generate() {
-          if (!chatInput || !chatInput.value.trim() || !editSnapshot || isGenerating) return;
-          if (editor.getModel().getVersionId() !== editSnapshot.version) {
-            statusLabel.textContent = 'SQL 已修改，请重新打开 Ctrl+I';
-            return;
-          }
-          const instruction = chatInput.value.trim();
-          proposedSql = '';
-          setGenerating(true);
-          const controller = new AbortController();
-          activeRequest = controller;
-          const { prefix, suffix, previewModel } = openPreview();
-          statusLabel.textContent = '正在生成 SQL…';
-          controls.accept.disabled = true;
-          try {
-            if (controls.mode.value === 'demo') {
-              proposedSql = rewriteDemoSql(editSnapshot.text, instruction);
-              previewModel.setValue(prefix + proposedSql + suffix);
-            } else {
-              await streamAI(editSnapshot.text, instruction, controller.signal, (delta) => {
-                // A canceled request may finish after the next preview has opened.
-                if (activeRequest !== controller) return;
-                if (delta) {
-                  controls.generationLabel.textContent = '正在接收 SQL…';
-                  statusLabel.textContent = '正在接收 SQL…';
-                }
-                proposedSql += delta;
-                previewModel.setValue(prefix + proposedSql + suffix);
-              });
-            }
-            if (activeRequest === controller && !controller.signal.aborted) {
-              statusLabel.textContent = '建议已生成：请检查 Diff';
-            }
-          } catch (error) {
-            if (activeRequest === controller && error.name !== 'AbortError') {
-              errorMessage.textContent = '生成失败：' + error.message;
-              statusLabel.textContent = '生成失败';
-            }
-          } finally {
-            if (activeRequest === controller) {
-              setGenerating(false);
-              controls.accept.disabled = !proposedSql || !!errorMessage.textContent;
-              activeRequest = null;
-            }
-          }
-        }
-
-        function rejectChanges() {
-          cancelGeneration();
-          closePreview();
-          statusLabel.textContent = '已拒绝修改，原 SQL 不变';
-          editor.focus();
-        }
-
-        function acceptChanges() {
-          if (!editSnapshot || !proposedSql || isGenerating) return;
-          if (editor.getModel().getVersionId() !== editSnapshot.version) {
-            errorMessage.textContent = '检测到编辑冲突：原 SQL 已变化。请重新生成，避免覆盖。';
-            return;
-          }
-          editor.pushUndoStop();
-          editor.executeEdits('ai-inline-chat', [
-            { range: editSnapshot.range, text: proposedSql, forceMoveMarkers: true },
-          ]);
-          editor.pushUndoStop();
-          closeAll();
-          statusLabel.textContent = 'AI 修改已应用，Ctrl+Z 可以撤销';
-          editor.focus();
-        }
-
-        // Register editor actions and toolbar handlers.
-        editor.onDidChangeModelContent(() => {
-          if (
-            previewPanel.style.display === 'flex' &&
-            editSnapshot &&
-            editor.getModel().getVersionId() !== editSnapshot.version
-          ) {
-            errorMessage.textContent = '检测到编辑冲突：原 SQL 已变化，请重新生成。';
-          }
-        });
-        editor.addAction({
-          id: 'ai-inline-chat',
-          label: 'AI Inline Chat',
-          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI],
-          run: openChat,
-        });
-        controls.open.onclick = openChat;
-        controls.reset.onclick = () => {
-          closeAll();
-          editor.setValue(sample);
-          statusLabel.textContent = '已重置';
-        };
-        controls.accept.onclick = acceptChanges;
-        controls.reject.onclick = rejectChanges;
-        controls.closePreview.onclick = rejectChanges;
+  function removeZone(key) {
+    if (zones[key] !== null) {
+      editor.changeViewZones(accessor => accessor.removeZone(zones[key]));
+      zones[key] = null;
+    }
+    if (key === 'chat') chat = null;
+  }
+  function insertZone(key, afterLineNumber, domNode, heightInPx) {
+    removeZone(key);
+    editor.changeViewZones(accessor => {
+      zones[key] = accessor.addZone({
+        afterLineNumber: Math.max(0, Math.min(afterLineNumber, model.getLineCount())),
+        heightInPx, domNode, suppressMouseDown: false,
       });
+    });
+    editor.revealLineInCenter(Math.max(1, afterLineNumber));
+  }
+  function clearMarks() { decorations.clear(); }
+  function cleanup() {
+    ++token;
+    abortController?.abort();
+    abortController = null;
+    removeZone('chat'); removeZone('feedback'); clearMarks();
+    snapshot = null; phase = 'idle';
+  }
+  function getRange(selection) {
+    return selection.isEmpty() ? model.getFullModelRange() :
+      new monaco.Range(selection.startLineNumber,selection.startColumn,
+        selection.endLineNumber,selection.endColumn);
+  }
+  function openInline() {
+    cleanup();
+    const selection = editor.getSelection();
+    const range = getRange(selection);
+    snapshot = {
+      version: model.getVersionId(), before: model.getValue(),
+      range, text: model.getValueInRange(range),
+      instruction: '', selection: selection,
+      afterLine: selection.endLineNumber,
+    };
+    const el = document.createElement('div');
+    el.className = 'inline-chat';
+    el.innerHTML = \`<div class="row">
+      <span class="chat-title">✦ Inline Edit <small>SQL</small></span>
+      <button class="secondary close" aria-label="关闭 Inline Edit">×</button>
+    </div><textarea aria-label="AI 修改指令" placeholder="描述你的修改，例如：增加最近 30 天的订单过滤"></textarea>
+    <div class="row">
+      <span class="hint">Ctrl+Enter 发送 · Esc 关闭 · 仅修改选区或全文</span>
+      <span class="action"><button class="cancel" hidden>停止生成</button>
+      <button class="generate">✦ 生成</button></span>
+    </div>\`;
+    for (const eventName of ['mousedown','pointerdown','keydown','keyup']) {
+      el.addEventListener(eventName,event => event.stopPropagation());
+    }
+    const input=el.querySelector('textarea'), send=el.querySelector('.generate');
+    el.querySelector('.close').onclick=()=>{cleanup();editor.focus();};
+    el.querySelector('.cancel').onclick=()=>{cleanup();status.textContent='已取消生成';editor.focus();};
+    send.onclick=()=>generate(input.value.trim(),send,el);
+    input.onkeydown=e=>{
+      if(e.key==='Escape'){e.preventDefault();cleanup();editor.focus();}
+      if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();generate(input.value.trim(),send,el);}
+    };
+    chat=el; phase='editing';
+    // Native Monaco ViewZone reserves vertical space and pushes the SQL lines below.
+    insertZone('chat',snapshot.afterLine,el,167);
+    status.textContent=selection.isEmpty()?'Inline Edit · 全文模式':'Inline Edit · 选区模式';
+    requestAnimationFrame(()=>{if(chat===el)input.focus();});
+  }
+  function rewriteDemoSql(sql,instruction) {
+    if(/失败|error|fail/i.test(instruction))throw Error('模拟生成失败：请检查网络或模型配置。');
+    const m=instruction.match(/(\d+)\s*天/);
+    if(/最近|过滤|where/i.test(instruction)&&m){
+      const clause="order_date >= CURRENT_DATE - INTERVAL '"+m[1]+"' DAY";
+      if(/\bWHERE\b/i.test(sql))return sql.replace(/\bWHERE\b/i,'WHERE '+clause+' AND');
+      if(/\bGROUP\s+BY\b/i.test(sql))return sql.replace(/\bGROUP\s+BY\b/i,'WHERE '+clause+'\nGROUP BY');
+      if(/\bORDER\s+BY\b/i.test(sql))return sql.replace(/\bORDER\s+BY\b/i,'WHERE '+clause+'\nORDER BY');
+      return sql.replace(/;\s*$/,'')+'\nWHERE '+clause+';';
+    }
+    if(/limit|前十|前10|限制/i.test(instruction))return sql.replace(/;\s*$/,'')+'\nLIMIT 10;';
+    if(/注释|解释/.test(instruction))return '-- 订单分析 SQL（AI 示例）\n'+sql;
+    return '-- Inline Edit 演示修改：'+instruction.replace(/[\r\n]/g,' ').slice(0,100)+'\n'+sql;
+  }
+  async function streamAI(sql,instruction,signal,onDelta){
+    const response=await fetch('/api/rewrite',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({sql,instruction,dialect:'MySQL'}),signal});
+    if(!response.ok)throw Error((await response.text()).slice(0,250));
+    if(!response.body)throw Error('无响应内容');
+    const reader=response.body.getReader(),decoder=new TextDecoder();
+    let buffer='',finished=false;
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      buffer+=decoder.decode(value,{stream:true}).replace(/\r/g,'');
+      let i;
+      while((i=buffer.indexOf('\n\n'))>=0){
+        const packet=buffer.slice(0,i);buffer=buffer.slice(i+2);
+        const evt=packet.split('\n').find(x=>x.startsWith('event:'))?.slice(6).trim();
+        const line=packet.split('\n').find(x=>x.startsWith('data:'))?.slice(5).trim();
+        if(!line)continue;
+        const data=JSON.parse(line);
+        if(evt==='delta')onDelta(data.text||'');
+        else if(evt==='error')throw Error(data.message||'AI 生成失败');
+        else if(evt==='done')finished=true;
+      }
+    }
+    if(!finished)throw Error('AI 输出未完整结束');
+  }
+  function feedback(kind,message,afterLine){
+    removeZone('feedback');
+    const el=document.createElement('div');
+    el.className=kind==='success'?'review-zone':'error-zone';
+    const card=document.createElement('div');card.className=kind==='success'?'review-card':'error-card';
+    const heading=document.createElement('strong');heading.textContent=kind==='success'?'✓ 已生成 SQL 修改':'⚠ AI 生成失败';
+    const desc=document.createElement('p');desc.textContent=message;
+    const row=document.createElement('div');row.className='row';
+    const actions=document.createElement('div');actions.className='actions';
+    function action(label,cls,handler){const btn=document.createElement('button');btn.textContent=label;btn.className=cls;btn.onclick=handler;actions.append(btn);}
+    if(kind==='success'){
+      action('↶ 撤销','secondary',rollback);
+      action('✓ 保留','keep',keep);
+    }else{
+      action('关闭','secondary',()=>{cleanup();editor.focus();});
+      action('重试','retry',()=>{const instruction=snapshot?.instruction||'';cleanup();openInline();if(chat){chat.querySelector('textarea').value=instruction;chat.querySelector('textarea').focus();}});
+    }
+    row.append(heading,actions);card.append(row,desc);el.append(card);
+    insertZone('feedback',afterLine,el,115);
+  }
+  function markChanges(before,after) {
+    const a=before.split('\n'),b=after.split('\n');
+    let first=0;while(first<a.length&&first<b.length&&a[first]===b[first])first++;
+    let tail=0;while(tail<a.length-first&&tail<b.length-first&&a[a.length-1-tail]===b[b.length-1-tail])tail++;
+    const inserted=b.length-first-tail,removed=a.length-first-tail;
+    const from=Math.min(model.getLineCount(),first+1);
+    const to=Math.min(model.getLineCount(),Math.max(from,first+inserted));
+    if(first===a.length&&first===b.length){clearMarks();return {inserted:0,removed:0};}
+    decorations.set([{
+      range:new monaco.Range(from,1,to,model.getLineMaxColumn(to)),
+      options:{isWholeLine:true,className:'ai-added-line',linesDecorationsClassName:'ai-added-gutter',
+        overviewRuler:{color:'#3dbf85',position:monaco.editor.OverviewRulerLane.Right}}
+    }]);
+    return {inserted,removed};
+  }
+  async function generate(instruction,button,element){
+    if(phase!=='editing'||!instruction)return;
+    if(model.getVersionId()!==snapshot.version){showError('SQL 已被修改，请重新打开 Inline Edit');return;}
+    phase='generating';snapshot.instruction=instruction;
+    const current=++token, controller=new AbortController();abortController=controller;
+    button.disabled=true;button.textContent='生成中…';
+    element.querySelector('.cancel').hidden=false;
+    status.textContent='正在生成 SQL…';
+    let result='';
+    try{
+      if(mode.value==='demo')result=rewriteDemoSql(snapshot.text,instruction);
+      else await streamAI(snapshot.text,instruction,controller.signal,delta=>{
+        if(token===current){result+=delta;status.textContent='正在接收 SQL… '+result.length+' 字符';}
+      });
+      if(token!==current||controller.signal.aborted)return;
+      if(!result.trim())throw Error('生成结果为空');
+      if(model.getVersionId()!==snapshot.version)throw Error('生成期间 SQL 发生变化，请重新发起');
+      removeZone('chat');
+      editor.pushUndoStop();
+      editor.executeEdits('ai-inline-edit',[{range:snapshot.range,text:result,forceMoveMarkers:true}]);
+      editor.pushUndoStop();
+      snapshot.appliedVersion=model.getVersionId();
+      snapshot.after=model.getValue();
+      const stats=markChanges(snapshot.before,snapshot.after);
+      phase='review';
+      feedback('success',\`修改已应用到原编辑器（新增约 \${stats.inserted} 行，移除约 \${stats.removed} 行）。选择“撤销”恢复原内容，或“保留”确认修改。\`,
+        Math.min(model.getLineCount(),snapshot.range.startLineNumber+Math.max(0,stats.inserted)));
+      status.textContent='AI 修改待确认 · 请查看原编辑器的绿色差异标记';
+    }catch(error){
+      if(token===current&&error.name!=='AbortError')showError(error.message||'未知错误');
+    }finally{
+      if(token===current){abortController=null;button.disabled=false;button.textContent='✦ 生成';}
+    }
+  }
+  function showError(message){
+    removeZone('chat');
+    phase='error';
+    feedback('error',message,snapshot?.afterLine||1);
+    status.textContent='Inline Edit 失败，SQL 保持原样';
+  }
+  function rollback(){
+    if(phase!=='review')return;
+    if(model.getVersionId()!==snapshot.appliedVersion){
+      status.textContent='SQL 已再次编辑：为避免覆盖，无法自动撤销。请使用编辑器撤销历史。';
+      return;
+    }
+    // Uses Monaco undo stack, preserving unrelated editor history.
+    editor.trigger('ai-inline-edit','undo',null);
+    cleanup();status.textContent='已撤销 AI 修改';editor.focus();
+  }
+  function keep(){cleanup();status.textContent='已保留 AI 修改';editor.focus();}
+  editor.addAction({id:'open-ai-inline-edit',label:'AI Inline Edit',
+    keybindings:[monaco.KeyMod.CtrlCmd|monaco.KeyCode.KeyI],run:openInline});
+  document.getElementById('open').onclick=openInline;
+  document.getElementById('reset').onclick=()=>{
+    cleanup();editor.setValue(sample);status.textContent='已重置';
+  };
+  model.onDidChangeContent(()=>{
+    if(phase==='review'&&snapshot&&model.getVersionId()!==snapshot.appliedVersion){
+      removeZone('feedback');clearMarks();phase='idle';
+      status.textContent='SQL 已继续编辑，修改确认提示已关闭';
+    }
+  });
+});
+
     </script>
   </body>
 </html>
