@@ -12,6 +12,30 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     await page.goto('http://127.0.0.1:' + server.address().port);
     await page.locator('.monaco-editor').waitFor({timeout: 25000});
 
+    // Ctrl+I must place keyboard focus in the newly created inline prompt,
+    // without requiring an additional mouse click.
+    await page.locator('.monaco-editor .view-lines').click({ position: {x: 140, y: 35} });
+    await page.keyboard.press('Control+i');
+    const shortcutInput = page.locator('.inline-chat .chat-input');
+    await shortcutInput.waitFor({state: 'visible'});
+    await page.waitForFunction(() =>
+      document.activeElement === document.querySelector('.inline-chat .chat-input')
+    );
+    await page.keyboard.type('直接输入测试');
+    assert.equal(await shortcutInput.inputValue(), '直接输入测试');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.inline-chat').count(), 0);
+
+    // Opening through the toolbar should also autofocus the same input.
+    await page.locator('#open').click();
+    const toolbarInput = page.locator('.inline-chat .chat-input');
+    await toolbarInput.waitFor({state: 'visible'});
+    await page.waitForFunction(() =>
+      document.activeElement === document.querySelector('.inline-chat .chat-input')
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.inline-chat').count(), 0);
+
     async function request(instruction) {
       await page.locator('#open').click();
       const input = page.locator('.inline-chat .chat-input');
