@@ -222,6 +222,10 @@
 .monaco-editor .ai-added-gutter{border-left:3px solid #3dbf85}
 .monaco-editor .ai-deleted-line{background:rgba(231,102,102,.12)}
 .monaco-editor .ai-deleted-gutter{border-left:3px solid #e57575}
+
+.ai-removed-lines{box-sizing:border-box;overflow:hidden;height:100%;border-left:3px solid #e27278;background:#452a31;color:#f1c5c6;font:13px/23px ui-monospace,SFMono-Regular,Consolas,monospace}
+.ai-removed-label{height:26px;padding:2px 12px;background:#5a303b;font:12px/22px system-ui;color:#ffd1d1}
+.ai-removed-code{height:23px;white-space:pre;overflow:hidden;text-overflow:ellipsis;padding:0 12px}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
   </head>
@@ -314,7 +318,7 @@ require(['vs/editor/editor.main'], () => {
   const model = editor.getModel();
   const status = document.getElementById('status');
   const mode = document.getElementById('mode');
-  const zones = { chat: null, feedback: null };
+  const zones = { chat: null, feedback: null, diff: null };
   let phase = 'idle', snapshot = null, chat = null, abortController = null;
   let decorations = editor.createDecorationsCollection([]);
   let token = 0;
@@ -341,7 +345,7 @@ require(['vs/editor/editor.main'], () => {
     ++token;
     abortController?.abort();
     abortController = null;
-    removeZone('chat'); removeZone('feedback'); clearMarks();
+    removeZone('chat'); removeZone('feedback'); removeZone('diff'); clearMarks();
     snapshot = null; phase = 'idle';
   }
   function getRange(selection) {
@@ -451,6 +455,23 @@ require(['vs/editor/editor.main'], () => {
     let first=0;while(first<a.length&&first<b.length&&a[first]===b[first])first++;
     let tail=0;while(tail<a.length-first&&tail<b.length-first&&a[a.length-1-tail]===b[b.length-1-tail])tail++;
     const inserted=b.length-first-tail,removed=a.length-first-tail;
+    // Removed source lines are rendered in an inline Monaco view zone.
+    // The actual document shows the newly generated lines in green.
+    if(removed>0){
+      const removedNode=document.createElement('div');
+      removedNode.className='ai-removed-lines';
+      const label=document.createElement('div');
+      label.className='ai-removed-label';
+      label.textContent='− 修改前 · '+removed+' 行';
+      removedNode.append(label);
+      a.slice(first,a.length-tail).forEach((line,index)=>{
+        const row=document.createElement('div');
+        row.className='ai-removed-code';
+        row.textContent='−  '+String(first+index+1).padStart(3,' ')+'  '+line;
+        removedNode.append(row);
+      });
+      insertZone('diff',Math.max(0,first),removedNode,26+removed*23);
+    }
     const from=Math.min(model.getLineCount(),first+1);
     const to=Math.min(model.getLineCount(),Math.max(from,first+inserted));
     if(first===a.length&&first===b.length){clearMarks();return {inserted:0,removed:0};}
@@ -520,7 +541,7 @@ require(['vs/editor/editor.main'], () => {
   };
   model.onDidChangeContent(()=>{
     if(phase==='review'&&snapshot&&model.getVersionId()!==snapshot.appliedVersion){
-      removeZone('feedback');clearMarks();phase='idle';
+      removeZone('feedback');removeZone('diff');clearMarks();phase='idle';
       status.textContent='SQL 已继续编辑，修改确认提示已关闭';
     }
   });
