@@ -297,13 +297,13 @@
     </div>
     <script>
 
-const sample = \`-- 订单收入分析
+const sample = `-- 订单收入分析
 SELECT
     user_id,
     SUM(amount) AS total_amount
 FROM orders
 GROUP BY user_id
-ORDER BY total_amount DESC;\`;
+ORDER BY total_amount DESC;`;
 require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
 require(['vs/editor/editor.main'], () => {
   const editor = monaco.editor.create(document.getElementById('editor'), {
@@ -361,7 +361,7 @@ require(['vs/editor/editor.main'], () => {
     };
     const el = document.createElement('div');
     el.className = 'inline-chat';
-    el.innerHTML = \`<div class="row">
+    el.innerHTML = `<div class="row">
       <span class="chat-title">✦ Inline Edit <small>SQL</small></span>
       <button class="secondary close" aria-label="关闭 Inline Edit">×</button>
     </div><textarea aria-label="AI 修改指令" placeholder="描述你的修改，例如：增加最近 30 天的订单过滤"></textarea>
@@ -369,7 +369,7 @@ require(['vs/editor/editor.main'], () => {
       <span class="hint">Ctrl+Enter 发送 · Esc 关闭 · 仅修改选区或全文</span>
       <span class="action"><button class="cancel" hidden>停止生成</button>
       <button class="generate">✦ 生成</button></span>
-    </div>\`;
+    </div>`;
     for (const eventName of ['mousedown','pointerdown','keydown','keyup']) {
       el.addEventListener(eventName,event => event.stopPropagation());
     }
@@ -486,7 +486,7 @@ require(['vs/editor/editor.main'], () => {
       snapshot.after=model.getValue();
       const stats=markChanges(snapshot.before,snapshot.after);
       phase='review';
-      feedback('success',\`修改已应用到原编辑器（新增约 \${stats.inserted} 行，移除约 \${stats.removed} 行）。选择“撤销”恢复原内容，或“保留”确认修改。\`,
+      feedback('success',`修改已应用到原编辑器（新增约 ${stats.inserted} 行，移除约 ${stats.removed} 行）。选择“撤销”恢复原内容，或“保留”确认修改。`,
         Math.min(model.getLineCount(),snapshot.range.startLineNumber+Math.max(0,stats.inserted)));
       status.textContent='AI 修改待确认 · 请查看原编辑器的绿色差异标记';
     }catch(error){
