@@ -43,6 +43,42 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     }
 
     await request('增加最近30天过滤条件');
+    // After submission, keep the same one-line ViewZone input showing "思考中"
+    // with a green stop button; do not float or replace it with a separate panel.
+    await page.locator('.inline-chat.is-generating').waitFor({state:'visible'});
+    const thinking = await page.evaluate(() => {
+      const zone=document.querySelector('.inline-chat.is-generating');
+      const input=zone?.querySelector('.chat-input');
+      const stop=zone?.querySelector('.generate.stop-mode');
+      const outer=zone?.getBoundingClientRect();
+      const inputRect=input?.getBoundingClientRect();
+      const buttonRect=stop?.getBoundingClientRect();
+      if(!zone||!input||!stop||!outer||!inputRect||!buttonRect)return null;
+      return {
+        height:outer.height,
+        placeholder:input.placeholder,
+        readonly:input.readOnly,
+        content:input.value,
+        buttonLabel:stop.getAttribute('aria-label'),
+        sameRow:Math.abs((inputRect.top+inputRect.bottom)/2-(buttonRect.top+buttonRect.bottom)/2)<3,
+        buttonColor:getComputedStyle(stop).backgroundColor,
+        hasExtraCancel:!!zone.querySelector('.cancel'),
+      };
+    });
+    assert.ok(thinking,'thinking state must remain in the inline ViewZone');
+    assert.equal(thinking.placeholder,'思考中');
+    assert.equal(thinking.readonly,true);
+    assert.equal(thinking.content,'');
+    assert.equal(thinking.buttonLabel,'停止生成');
+    assert.equal(thinking.sameRow,true);
+    assert.equal(thinking.hasExtraCancel,false);
+    assert.ok(thinking.height<=60);
+    assert.equal(thinking.buttonColor,'rgb(38, 239, 121)');
+    // Stop is clickable; original prompt is restored without modifying SQL.
+    await page.locator('.inline-chat .stop-mode').click({timeout:6000});
+    assert.equal(await page.locator('.inline-chat .chat-input').inputValue(),'增加最近30天过滤条件');
+    assert.equal(await page.locator('.review-card').count(),0);
+    await page.locator('.inline-chat .generate').click();
     const keep = page.locator('.review-card .keep');
     await keep.waitFor({state: 'visible'});
     const compactLayout = await page.evaluate(() => {
