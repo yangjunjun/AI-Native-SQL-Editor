@@ -50,20 +50,31 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     // Regression: the review must start at the Monaco line-number gutter and
     // touch the edited SQL hunk, not float near the original selection start.
     const geometry = await page.evaluate(() => {
+      const zoneNode = document.querySelector('.review-zone');
       const review = document.querySelector('.review-card')?.getBoundingClientRect();
-      const gutter = document.querySelector('.monaco-editor .line-numbers')?.getBoundingClientRect();
+      const zone = zoneNode?.getBoundingClientRect();
+      const code = document.querySelector('.monaco-editor .view-line')?.getBoundingClientRect();
       const changed = document.querySelector('.monaco-editor .ai-added-line')?.getBoundingClientRect();
-      if (!review || !gutter || !changed) return null;
+      if (!review || !zone || !code || !changed) return null;
+      const styles = getComputedStyle(zoneNode);
       return {
-        leftOffset: review.left - gutter.left,
+        leftOffset: review.left - code.left,
         gapAfterChange: review.top - changed.bottom,
+        topInset: review.top - zone.top,
+        bottomInset: zone.bottom - review.bottom,
+        paddingTop: styles.paddingTop,
+        paddingBottom: styles.paddingBottom,
       };
     });
-    assert.ok(geometry, 'review, line-number gutter, and changed line must exist');
+    assert.ok(geometry, 'review, SQL content, and changed line must exist');
     assert.ok(Math.abs(geometry.leftOffset) <= 8,
-      'review must align with the line-number gutter: ' + JSON.stringify(geometry));
-    assert.ok(Math.abs(geometry.gapAfterChange) <= 15,
-      'review must immediately follow edited SQL: ' + JSON.stringify(geometry));
+      'review must align with the SQL content column: ' + JSON.stringify(geometry));
+    assert.ok(Math.abs(geometry.gapAfterChange - 6) <= 8,
+      'review should follow edited SQL with 6px gap: ' + JSON.stringify(geometry));
+    assert.equal(geometry.paddingTop, '6px');
+    assert.equal(geometry.paddingBottom, '6px');
+    assert.ok(Math.abs(geometry.topInset - 6) <= 2 && Math.abs(geometry.bottomInset - 6) <= 2,
+      'review zone must have 6px top and bottom margins: ' + JSON.stringify(geometry));
     await keep.click({timeout: 6000});
     assert.match(await page.locator('#status').textContent(), /已保留 AI 修改/);
 
