@@ -14,9 +14,31 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
 
     async function request(instruction) {
       await page.locator('#open').click();
-      const input = page.locator('.inline-chat textarea');
+      const input = page.locator('.inline-chat .chat-input');
       await input.waitFor();
+      const compact = await page.evaluate(() => {
+        const chat = document.querySelector('.inline-chat');
+        const input = chat?.querySelector('.chat-input');
+        const send = chat?.querySelector('.generate');
+        if (!chat || !input || !send) return null;
+        const outer = chat.getBoundingClientRect();
+        const field = input.getBoundingClientRect();
+        const action = send.getBoundingClientRect();
+        return {
+          height: outer.height,
+          inputIsSingleLine: input.tagName === 'INPUT',
+          sameRow: Math.abs((field.top + field.bottom)/2 - (action.top + action.bottom)/2) <= 3,
+          buttonRight: action.left > field.right,
+          hasOldTitle: !!chat.querySelector('.chat-title'),
+        };
+      });
+      assert.ok(compact, 'inline prompt must render');
+      assert.ok(compact.height <= 64, 'inline prompt should be compact: ' + JSON.stringify(compact));
+      assert.ok(compact.inputIsSingleLine && compact.sameRow && compact.buttonRight && !compact.hasOldTitle,
+        'input and send action must be on one row: ' + JSON.stringify(compact));
+      assert.equal(await page.locator('.inline-chat .generate').isDisabled(), true);
       await input.fill(instruction);
+      assert.equal(await page.locator('.inline-chat .generate').isEnabled(), true);
       await page.locator('.inline-chat .generate').click();
     }
 
@@ -77,6 +99,14 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
       'review zone must have 6px top and bottom margins: ' + JSON.stringify(geometry));
     await keep.click({timeout: 6000});
     assert.match(await page.locator('#status').textContent(), /已保留 AI 修改/);
+
+    // The reference placeholder advertises Up history and Esc close: test both.
+    await page.locator('#open').click();
+    const historyInput = page.locator('.inline-chat .chat-input');
+    await historyInput.press('ArrowUp');
+    assert.equal(await historyInput.inputValue(), '增加最近30天过滤条件');
+    await historyInput.press('Escape');
+    assert.equal(await page.locator('.inline-chat').count(), 0);
 
     await request('增加最近7天过滤条件');
     const undo = page.locator('.review-card .secondary');
