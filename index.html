@@ -202,15 +202,22 @@
       }
 
 /* Inline edit uses a view zone, never an overlay over SQL rows. */
-.inline-chat{width:100%;height:60px;margin:6px 0!important;padding:7px 9px!important;display:flex;align-items:center;overflow:hidden;border:1px solid #434b58!important;border-radius:9px!important;background:#252a31!important;box-shadow:0 3px 10px #0003!important}
-.inline-chat .chat-input-row{display:flex;align-items:center;gap:8px;width:100%;height:42px;min-width:0;padding:0 8px;border:1px solid #454e5d;border-radius:5px;background:#191d23;transition:border-color .15s}
+.inline-chat{width:100%;height:56px;margin:6px 0!important;padding:7px 9px!important;display:flex;align-items:center;overflow:hidden;border:1px solid #434b58!important;border-radius:9px!important;background:#252a31!important;box-shadow:0 3px 10px #0003!important}
+.inline-chat .chat-input-row{position:relative;display:flex;align-items:center;gap:8px;width:100%;height:40px;min-width:0;padding:0 8px;border:1px solid #454e5d;border-radius:5px;background:#191d23;transition:border-color .15s}
 .inline-chat .chat-input-row:focus-within{border-color:#7b79a0}
 .inline-chat .chat-input{flex:1;min-width:0;height:100%;padding:0 4px;border:0;outline:0;background:transparent;color:#e8ebf3;font:13px/1.4 system-ui,sans-serif}
 .inline-chat .chat-input::placeholder{color:#858c9c;opacity:1}
-.inline-chat .chat-input-row button{flex:none;display:flex;align-items:center;justify-content:center;width:27px;height:27px;padding:0;border-radius:5px;font-size:19px;font-weight:700;line-height:1}
+.inline-chat .chat-input-row button{flex:none;display:flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border-radius:5px;font-size:18px;font-weight:700;line-height:1}
 .inline-chat button.generate{background:#26674d;color:#e6fff2}
+.inline-chat.is-generating .chat-input{cursor:default;color:#87909f}
+.inline-chat.is-generating .chat-input-row{border-color:#555963}
+.inline-chat .generate.stop-mode{position:relative;background:#26ef79;color:#111b14;opacity:1;cursor:pointer}
+.inline-chat .generate.stop-mode::before{content:'';width:12px;height:12px;border:1.5px solid #092514;border-radius:50%;position:absolute}
+.inline-chat .generate.stop-mode::after{content:'';width:5px;height:5px;border-radius:1px;background:#092514;position:absolute}
+.inline-chat.is-generating .chat-input-row::after{content:'';position:absolute;bottom:-3px;left:46%;width:32px;height:2px;background:#b6b9c4;border-radius:2px;animation:inline-thinking 1.25s ease-in-out infinite alternate}
+@keyframes inline-thinking{from{transform:translateX(-8px);opacity:.45}to{transform:translateX(8px);opacity:1}}
+@media(prefers-reduced-motion:reduce){.inline-chat.is-generating .chat-input-row::after{animation:none}}
 .inline-chat button.generate:disabled{opacity:.55;cursor:not-allowed}
-.inline-chat button.cancel{background:#59434c;color:#ffd4da;font-size:18px}
 .inline-chat [hidden]{display:none!important}
 .review-zone,.error-zone{box-sizing:border-box;width:100%;padding:0;overflow:hidden}
 .review-card,.error-card{width:100%;max-width:none;margin:0;background:#1b2a3d;border:1px solid #4f6079;border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px #0003}
@@ -428,7 +435,6 @@ require(['vs/editor/editor.main'], () => {
         <input class="chat-input" type="text" aria-label="AI 修改指令"
           autocomplete="off" spellcheck="false"
           placeholder="按 ↑ 查看历史输入，按 Esc 关闭" />
-        <button type="button" class="cancel" aria-label="停止生成" title="停止生成" hidden>×</button>
         <button type="button" class="generate" aria-label="发送修改指令" title="Enter 发送">↑</button>
       </div>`;
     for (const eventName of ['mousedown','pointerdown','keydown','keyup']) {
@@ -439,7 +445,6 @@ require(['vs/editor/editor.main'], () => {
     let historyIndex=instructionHistory.length,historyDraft='';
     function syncSend(){send.disabled=phase!=='editing'||!input.value.trim();}
     input.addEventListener('input',syncSend);
-    el.querySelector('.cancel').onclick=()=>{cleanup();status.textContent='已取消生成';editor.focus();};
     send.onclick=()=>generate(input.value.trim(),send,el);
     input.onkeydown=e=>{
       if(e.key==='Escape'){e.preventDefault();cleanup();editor.focus();return;}
@@ -460,7 +465,7 @@ require(['vs/editor/editor.main'], () => {
     };
     chat=el; phase='editing';
     // Native Monaco ViewZone reserves vertical space and pushes the SQL lines below.
-    insertZone('chat',snapshot.afterLine,el,72);
+    insertZone('chat',snapshot.afterLine,el,68);
     status.textContent=selection.isEmpty()?'Inline Edit · 全文模式':'Inline Edit · 选区模式';
     requestAnimationFrame(()=>{if(chat===el)input.focus();});
   }
@@ -569,12 +574,51 @@ require(['vs/editor/editor.main'], () => {
     if(instructionHistory.at(-1)!==instruction)instructionHistory.push(instruction);
     if(instructionHistory.length>20)instructionHistory.shift();
     const current=++token, controller=new AbortController();abortController=controller;
-    button.disabled=true;button.textContent='…';button.setAttribute('aria-label','正在生成');
-    element.querySelector('.cancel').hidden=false;
+    // Keep the same inline input visible while thinking, as in the editor reference.
+    const input = element.querySelector('.chat-input');
+    const savedPlaceholder = input.placeholder;
+    element.classList.add('is-generating');
+    input.value = '';
+    input.placeholder = '思考中';
+    input.readOnly = true;
+    input.blur();
+    button.disabled = false;
+    button.classList.add('stop-mode');
+    button.textContent = '';
+    button.title = '停止生成';
+    button.setAttribute('aria-label','停止生成');
+    button.onclick = () => {
+      if (phase !== 'generating' || token !== current) return;
+      ++token;
+      controller.abort();
+      abortController = null;
+      phase = 'editing';
+      element.classList.remove('is-generating');
+      input.readOnly = false;
+      input.value = instruction;
+      input.placeholder = savedPlaceholder;
+      button.classList.remove('stop-mode');
+      button.textContent = '↑';
+      button.title = 'Enter 发送';
+      button.setAttribute('aria-label','发送修改指令');
+      button.onclick = () => generate(input.value.trim(),button,element);
+      status.textContent = '生成已停止，可修改指令后重新发送';
+      input.focus();
+    };
     status.textContent='正在生成 SQL…';
     let result='';
     try{
-      if(mode.value==='demo')result=rewriteDemoSql(snapshot.text,instruction);
+      if(mode.value==='demo'){
+        // Keep the loading state visible in demo mode; cancellation uses the same AbortController.
+        await new Promise((resolve,reject) => {
+          const timer=setTimeout(resolve,700);
+          controller.signal.addEventListener('abort',()=>{
+            clearTimeout(timer);
+            reject(new DOMException('Canceled','AbortError'));
+          },{once:true});
+        });
+        result=rewriteDemoSql(snapshot.text,instruction);
+      }
       else await streamAI(snapshot.text,instruction,controller.signal,delta=>{
         if(token===current){result+=delta;status.textContent='正在接收 SQL… '+result.length+' 字符';}
       });
@@ -598,7 +642,7 @@ require(['vs/editor/editor.main'], () => {
     }catch(error){
       if(token===current&&error.name!=='AbortError')showError(error.message||'未知错误');
     }finally{
-      if(token===current){abortController=null;button.disabled=false;button.textContent='↑';button.setAttribute('aria-label','发送修改指令');}
+      if(token===current){abortController=null;}
     }
   }
   function showError(message){
