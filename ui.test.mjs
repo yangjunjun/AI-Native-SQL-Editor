@@ -36,6 +36,41 @@ test('Inline Edit review and error buttons receive real browser clicks', async (
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.inline-chat').count(), 0);
 
+    // Switching themes updates Monaco and the entire inline UI, without
+    // replacing the SQL model, and persists the choice across reloads.
+    const themeSnapshot = () => page.evaluate(() => ({
+      appTheme: document.body.dataset.theme,
+      bodyBackground: getComputedStyle(document.body).backgroundColor,
+      monacoLight: !!document.querySelector('.monaco-editor.vs'),
+      monacoDark: !!document.querySelector('.monaco-editor.vs-dark'),
+      saved: localStorage.getItem('ai-native-sql-editor-theme')
+    }));
+    const darkAppearance = await themeSnapshot();
+    assert.equal(darkAppearance.appTheme, 'dark');
+    assert.equal(darkAppearance.monacoDark, true);
+    await page.locator('#theme').selectOption('light');
+    const lightAppearance = await themeSnapshot();
+    assert.equal(lightAppearance.appTheme, 'light');
+    assert.equal(lightAppearance.monacoLight, true);
+    assert.equal(lightAppearance.saved, 'light');
+    assert.notEqual(lightAppearance.bodyBackground, darkAppearance.bodyBackground);
+
+    await page.locator('#open').click();
+    const lightInline = await page.locator('.inline-chat').evaluate(el => getComputedStyle(el).backgroundColor);
+    await page.locator('#theme').selectOption('dark');
+    assert.equal(await page.locator('.inline-chat').count(), 1, 'theme switch should preserve open inline chat');
+    const darkInline = await page.locator('.inline-chat').evaluate(el => getComputedStyle(el).backgroundColor);
+    assert.notEqual(lightInline, darkInline, 'inline chat must change with editor theme');
+    await page.locator('.inline-chat .chat-input').press('Escape');
+    await page.locator('#theme').selectOption('light');
+
+    await page.reload();
+    await page.locator('.monaco-editor').waitFor({timeout:25000});
+    assert.equal(await page.locator('#theme').inputValue(), 'light');
+    assert.equal((await themeSnapshot()).monacoLight, true, 'light theme must persist after reload');
+    await page.locator('#theme').selectOption('dark');
+    assert.equal((await themeSnapshot()).monacoDark, true);
+
     async function request(instruction) {
       await page.locator('#open').click();
       const input = page.locator('.inline-chat .chat-input');
