@@ -5,9 +5,10 @@ A runnable **Monaco Editor AI Inline Chat MVP**. The prototype uses Monaco ViewZ
 ## Features
 
 - **Ctrl+I / Cmd+I** opens the Inline Chat near the cursor
+- Switch between **深色 / 浅色** themes in the toolbar; Monaco, Inline Edit, and Diff styles stay coordinated and the choice is saved locally
 - Edit a selected SQL range, or the whole document when nothing is selected
-- **Ctrl+Enter** to generate SQL; **Esc** to close
-- Monaco **DiffEditor** shows inline changes in the original editor area, with Accept / Reject
+- **Enter** to generate SQL; **Esc** to close; **↑** to recall recent prompts
+- In-editor inline diff highlights changes, with Undo / Keep actions
 - `executeEdits()` and undo stops, preserving Ctrl+Z undo
 - Reject leaves SQL unchanged; version checks block changes when SQL has been edited since generation
 - **Demo mode** (rule-based, no credentials) or **AI API mode** (OpenAI-compatible streaming chat completions via Node proxy)
