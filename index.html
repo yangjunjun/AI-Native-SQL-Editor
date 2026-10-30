@@ -476,11 +476,23 @@ require(['vs/editor/editor.main'], () => {
       if (!force && active !== input && active !== document.body && !editorHost.contains(active)) return;
       input.focus({ preventScroll: true });
     };
+    // Monaco may asynchronously refocus its hidden textarea when the
+    // Ctrl+I action finishes. Redirect that restoration to the prompt.
+    const redirectEditorFocus = (event) => {
+      if (event.target !== input && chat === el && phase === 'editing') {
+        queueMicrotask(() => focusPrompt());
+      }
+    };
+    editorHost.addEventListener('focusin', redirectEditorFocus, true);
+    setTimeout(() => editorHost.removeEventListener('focusin', redirectEditorFocus, true), 650);
     focusPrompt(true);
     requestAnimationFrame(() => {
       focusPrompt();
       requestAnimationFrame(focusPrompt);
     });
+    setTimeout(focusPrompt, 0);
+    setTimeout(focusPrompt, 100);
+    setTimeout(focusPrompt, 300);
   }
   function rewriteDemoSql(sql,instruction) {
     if(/失败|error|fail/i.test(instruction))throw Error('模拟生成失败：请检查网络或模型配置。');
