@@ -85,6 +85,8 @@
         cursor: not-allowed;
       }
       #editor {
+        position: relative;
+        overflow: hidden;
         height: 520px;
         background: #1e1e1e;
       }
@@ -323,23 +325,70 @@ require(['vs/editor/editor.main'], () => {
   let decorations = editor.createDecorationsCollection([]);
   let token = 0;
 
+
+  const editorHost = document.getElementById('editor');
+  // Monaco renders view-zone DOM underneath the interactive view-lines layer.
+  // The zone reserves vertical space; only interactive elements are mounted in
+  // a separate, clickable layer above Monaco and follow the zone while scrolling.
   function removeZone(key) {
-    if (zones[key] !== null) {
-      editor.changeViewZones(accessor => accessor.removeZone(zones[key]));
+    const zone = zones[key];
+    if (zone !== null) {
+      editor.changeViewZones(accessor => accessor.removeZone(zone.id));
+      zone.interactiveNode?.remove();
       zones[key] = null;
     }
     if (key === 'chat') chat = null;
   }
   function insertZone(key, afterLineNumber, domNode, heightInPx) {
     removeZone(key);
+    const line = Math.max(0, Math.min(afterLineNumber, model.getLineCount()));
+    const interactive = key === 'chat' || key === 'feedback';
+    const zoneNode = interactive ? document.createElement('div') : domNode;
+    let interactiveNode = null;
+    if (interactive) {
+      interactiveNode = domNode;
+      interactiveNode.style.position = 'absolute';
+      interactiveNode.style.pointerEvents = 'auto';
+      interactiveNode.style.zIndex = '30';
+      interactiveNode.style.boxSizing = 'border-box';
+      // Align the dialog with the text column, leaving the line-number gutter.
+      const layout = editor.getLayoutInfo();
+      interactiveNode.style.left = layout.contentLeft + 'px';
+      interactiveNode.style.width = Math.max(160, layout.width - layout.contentLeft - 12) + 'px';
+      editorHost.appendChild(interactiveNode);
+      // Keep Monaco's keyboard/mouse handlers from hijacking form controls.
+      for (const eventName of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+        interactiveNode.addEventListener(eventName, event => event.stopPropagation());
+      }
+    }
+    let top = 0;
+    function updateTop(nextTop) {
+      top = nextTop;
+      if (interactiveNode) interactiveNode.style.top = nextTop + 'px';
+    }
+    const zone = { id: null, interactiveNode };
     editor.changeViewZones(accessor => {
-      zones[key] = accessor.addZone({
-        afterLineNumber: Math.max(0, Math.min(afterLineNumber, model.getLineCount())),
-        heightInPx, domNode, suppressMouseDown: false,
+      zone.id = accessor.addZone({
+        afterLineNumber: line,
+        heightInPx,
+        domNode: zoneNode,
+        suppressMouseDown: false,
+        onDomNodeTop: updateTop,
       });
     });
-    editor.revealLineInCenter(Math.max(1, afterLineNumber));
+    zones[key] = zone;
+    editor.revealLineInCenter(Math.max(1, line));
+    if (interactiveNode) interactiveNode.style.top = top + 'px';
   }
+  editor.onDidLayoutChange(layout => {
+    for (const key of ['chat', 'feedback']) {
+      const node = zones[key]?.interactiveNode;
+      if (node) {
+        node.style.left = layout.contentLeft + 'px';
+        node.style.width = Math.max(160, layout.width - layout.contentLeft - 12) + 'px';
+      }
+    }
+  });
   function clearMarks() { decorations.clear(); }
   function cleanup() {
     ++token;
