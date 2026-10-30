@@ -463,33 +463,23 @@ require(['vs/editor/editor.main'], () => {
         e.preventDefault();generate(input.value.trim(),send,el);
       }
     };
-    chat=el; phase='editing';
-    // Native Monaco ViewZone reserves vertical space and pushes the SQL lines below.
+    phase='editing';
+    // insertZone removes any old chat zone (and clears chat); register the
+    // newly mounted input AFTER that cleanup so autofocus sees the live node.
     insertZone('chat',snapshot.afterLine,el,68);
+    chat=el;
     status.textContent=selection.isEmpty()?'Inline Edit · 全文模式':'Inline Edit · 选区模式';
-    // The Monaco command dispatcher can refocus its hidden textarea AFTER
-    // Ctrl+I finishes, and toolbar click handlers may similarly refocus the
-    // trigger button. Focus the new input after those event/default actions.
     const focusPrompt = () => {
-      if (chat !== el || phase !== 'editing' || !input.isConnected) return;
-      input.focus({ preventScroll: true });
+      if (chat === el && phase === 'editing' && input.isConnected) {
+        input.focus({preventScroll:true});
+      }
     };
-    // A short-lived capture listener catches Monaco's focus restoration.
-    const restoreFocus = (event) => {
-      if (event.target === input || chat !== el || phase !== 'editing') return;
-      setTimeout(focusPrompt, 0);
-    };
-    editorHost.addEventListener('focusin', restoreFocus, true);
-    setTimeout(() => editorHost.removeEventListener('focusin', restoreFocus, true), 500);
+    // Focus immediately; retry after Monaco finishes the shortcut action and layout.
     focusPrompt();
-    queueMicrotask(focusPrompt);
     requestAnimationFrame(() => {
       focusPrompt();
       requestAnimationFrame(focusPrompt);
     });
-    setTimeout(focusPrompt, 0);
-    setTimeout(focusPrompt, 80);
-    setTimeout(focusPrompt, 200);
   }
   function rewriteDemoSql(sql,instruction) {
     if(/失败|error|fail/i.test(instruction))throw Error('模拟生成失败：请检查网络或模型配置。');
